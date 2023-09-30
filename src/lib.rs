@@ -1,6 +1,10 @@
+use std::collections::HashSet;
+
 use rand::seq::{index, SliceRandom};
 
+#[derive(Eq, PartialEq, Hash)]
 pub struct HashKey<const N: usize>(pub [u32; N]);
+#[derive(Copy, Clone)]
 pub struct Vector<const N: usize>(pub [f32; N]);
 
 impl<const N: usize> Vector<N> {
@@ -23,7 +27,7 @@ impl<const N: usize> Vector<N> {
     pub fn to_hashkey(&self) -> HashKey<N> {
         let vals = self.0.iter().map(|a| a.to_bits());
         let results: [u32; N] = vals.collect::<Vec<_>>().try_into().unwrap();
-        return HashKey(results);
+        return HashKey::<N>(results);
     }
 
     pub fn squared_euclidean(&self, other: &Vector<N>) -> f32 {
@@ -73,7 +77,7 @@ pub struct ANNIndex<const N: usize> {
     trees: Vec<Node<N>>,
     // stores all the vectors within the index in a global contiguous location
     values: Vec<Vector<N>>,
-    ids: Vec<u32>,
+    ids: Vec<usize>,
 }
 
 impl<const N: usize> ANNIndex<N> {
@@ -115,20 +119,62 @@ impl<const N: usize> ANNIndex<N> {
         return (hyperplane, above, below);
     }
 
-    fn build_a_tree(max_size: usize, indexes: Vec<usize>, all_vecs: &Vec<Vector<N>>) -> Node<N> {
+    fn build_a_tree(max_size: usize, indexes: &Vec<usize>, all_vecs: &Vec<Vector<N>>) -> Node<N> {
         if indexes.len() < max_size {
-            return Node::Leaf(Box::new(LeafNode(indexes)));
+            return Node::Leaf(Box::new(LeafNode(indexes.clone())));
         } else {
             let (hyperplane, above, below) = Self::build_hyperplane(&indexes, all_vecs);
 
-            let left_node = Self::build_a_tree(max_size, above, all_vecs);
-            let right_node = Self::build_a_tree(max_size, below, all_vecs);
+            let left_node = Self::build_a_tree(max_size, &above, all_vecs);
+            let right_node = Self::build_a_tree(max_size, &below, all_vecs);
 
             return Node::Inner(Box::new(InnerNode {
                 hyperplane,
                 left_node,
                 right_node,
             }));
+        }
+    }
+
+    fn deduplicate(
+        all_vectors: &Vec<Vector<N>>,
+        all_indexes: &Vec<usize>,
+        dedup_vecs: &mut Vec<Vector<N>>,
+        dedup_vec_ids: &mut Vec<usize>,
+    ) {
+        let mut hashes_seen: HashSet<HashKey<N>> = HashSet::new();
+        for id in 0..all_vectors.len() {
+            let hash_key = all_vectors[id].to_hashkey();
+            if !hashes_seen.contains(&hash_key) {
+                hashes_seen.insert(hash_key);
+
+                // requires the Copy trait to copy a vector from `all_vectors` into `dedup_vecs`
+                dedup_vecs.push(all_vectors[id]);
+                dedup_vec_ids.push(all_indexes[id]);
+            }
+        }
+    }
+
+    pub fn build_index(
+        num_trees: usize,
+        max_size: usize,
+        vectors: Vec<Vector<N>>,
+        vector_ids: Vec<usize>,
+    ) -> ANNIndex<N> {
+        let mut dedup_vecs = vec![];
+        let mut dedup_vec_ids = vec![];
+        Self::deduplicate(&vectors, &vector_ids, &mut dedup_vecs, &mut dedup_vec_ids);
+
+        let mut trees = vec![];
+
+        for _ in 0..num_trees {
+            trees.push(Self::build_a_tree(max_size, &dedup_vec_ids, &dedup_vecs));
+        }
+
+        ANNIndex {
+            trees,
+            values: vectors,
+            ids: vector_ids,
         }
     }
 }
