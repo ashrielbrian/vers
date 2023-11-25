@@ -51,9 +51,12 @@ fn update_centroids<const N: usize>(
     assignments: &[usize],
     k: usize,
 ) -> Vec<Vector<N>> {
+    // k Vectors of N size
     let mut new_centroids = vec![Vector([0.0; N]); k];
 
     for (data_point, cluster_index) in data.iter().zip(assignments) {
+        // TODO: technically this adds a data point of zeros to each centroid, skewing the average
+        // need to remove the effect of this zeros datapoint from each centroid.
         new_centroids[*cluster_index] = new_centroids[*cluster_index].average(data_point);
     }
 
@@ -86,4 +89,38 @@ pub fn kmeans<const N: usize>(
 
     let assignments = assign_to_clusters(data, &centroids);
     (centroids, assignments)
+}
+
+pub fn generate_kmeans_clusters<const N: usize>(
+    data: &[Vector<N>],
+    num_attempts: usize,
+    k: usize,
+    max_iterations: usize,
+) -> (Vec<Vector<N>>, Vec<usize>) {
+    let mut best_cost = f32::INFINITY;
+    let mut best_centroids: Vec<Vector<N>> = Vec::new();
+    let mut best_assignments: Vec<usize> = Vec::new();
+    for _ in (0..num_attempts) {
+        let (centroids, assignments) = kmeans(data, k, max_iterations);
+        let cost = calculate_kmeans_cost(data, &centroids, &assignments);
+
+        if cost < best_cost {
+            best_cost = cost;
+            best_centroids = centroids;
+            best_assignments = assignments;
+        }
+    }
+
+    (best_centroids, best_assignments)
+}
+
+pub fn calculate_kmeans_cost<const N: usize>(
+    data: &[Vector<N>],
+    centroids: &Vec<Vector<N>>,
+    assignments: &Vec<usize>,
+) -> f32 {
+    data.iter()
+        .zip(assignments)
+        .map(|(data_point, cluster_index)| data_point.squared_euclidean(&centroids[*cluster_index]))
+        .fold(0.0, |acc, val| acc + val)
 }
