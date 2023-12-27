@@ -1,4 +1,4 @@
-use crate::{indexes::base::Vector, HashKey};
+use crate::indexes::base::{HashKey, Vector};
 use rand::{self, Rng};
 pub struct IVFFlatIndex {
     s: String,
