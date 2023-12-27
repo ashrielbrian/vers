@@ -1,4 +1,11 @@
+use dashmap::DashSet;
+use itertools::Itertools;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use std::cmp::{min, Ordering};
 use std::collections::HashSet;
+mod indexes;
+
+use indexes::ivfflat::IVFFlatIndex;
 
 use rand::seq::{index, SliceRandom};
 
@@ -165,16 +172,94 @@ impl<const N: usize> ANNIndex<N> {
         let mut dedup_vec_ids = vec![];
         Self::deduplicate(&vectors, &vector_ids, &mut dedup_vecs, &mut dedup_vec_ids);
 
-        let mut trees = vec![];
+        // TODO: can parallelize this
+        // maps each index to the unique vector
+        let all_indexes_from_unique_vecs = (0..dedup_vecs.len()).collect();
 
-        for _ in 0..num_trees {
-            trees.push(Self::build_a_tree(max_size, &dedup_vec_ids, &dedup_vecs));
-        }
+        let trees: Vec<Node<N>> = (0..num_trees)
+            .into_par_iter()
+            .map(|_| Self::build_a_tree(max_size, &all_indexes_from_unique_vecs, &dedup_vecs))
+            .collect();
 
         ANNIndex {
             trees,
-            values: vectors,
-            ids: vector_ids,
+            values: dedup_vecs,
+            ids: dedup_vec_ids,
         }
+    }
+
+    fn tree_result(
+        &self,
+        query: Vector<N>,
+        n: i32,
+        tree: &Node<N>,
+        candidates: &DashSet<usize>,
+    ) -> i32 {
+        match tree {
+            Node::Leaf(leaf_node) => {
+                let leaf_values_index = &(leaf_node.0);
+                let mut num_candidates = 0;
+                if leaf_values_index.len() < n as usize {
+                    // take all the candidates
+                    num_candidates = leaf_values_index.len();
+
+                    for i in leaf_values_index {
+                        candidates.insert(*i);
+                    }
+                } else {
+                    // only take candidate whose vectors are those closest to the query in distance
+                    num_candidates = n as usize;
+
+                    let top_candidates: Vec<usize> = leaf_values_index
+                        .into_iter()
+                        .map(|idx| {
+                            let curr_vector = &self.values[*idx];
+                            (idx, curr_vector.squared_euclidean(&query))
+                        })
+                        .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                        .take(n as usize)
+                        .map(|(idx, distance)| *idx)
+                        .collect();
+
+                    for i in top_candidates {
+                        candidates.insert(i);
+                    }
+                }
+
+                num_candidates as i32
+            }
+            Node::Inner(inner_node) => {
+                let is_above = inner_node.hyperplane.point_is_above(&query);
+                let (main, backup) = match is_above {
+                    true => (&inner_node.right_node, &inner_node.left_node),
+                    false => (&inner_node.left_node, &inner_node.right_node),
+                };
+
+                match self.tree_result(query, n, main, candidates) {
+                    k if k < n => self.tree_result(query, n - k, backup, candidates),
+                    k => k,
+                }
+            }
+        }
+    }
+
+    pub fn search_approximate(&self, query: Vector<N>, top_k: i32) -> Vec<(usize, f32)> {
+        // using dashset instead of hashset as it support concurrent mutations to the set
+        let candidates = DashSet::new();
+
+        self.trees.par_iter().for_each(|tree| {
+            self.tree_result(query, top_k, tree, &candidates);
+        });
+
+        candidates
+            .into_iter()
+            .map(|idx| (idx, self.values[idx].squared_euclidean(&query)))
+            .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .take(top_k as usize)
+            // TODO: consider removing the self.ids, as it's slightly misleading. this vector is deduplicated, so that the
+            // the number of elements in self.ids is the same as the unique vectors, but the elements themselves are indices
+            // to the non-dedup'ed IDs
+            .map(|(idx, distance)| (self.ids[idx], distance))
+            .collect()
     }
 }
