@@ -161,8 +161,8 @@ impl<const N: usize> ANNIndex<N> {
     pub fn build_index(
         num_trees: usize,
         max_size: usize,
-        vectors: Vec<Vector<N>>,
-        vector_ids: Vec<usize>,
+        vectors: &Vec<Vector<N>>,
+        vector_ids: &Vec<usize>,
     ) -> ANNIndex<N> {
         let mut dedup_vecs = vec![];
         let mut dedup_vec_ids = vec![];
