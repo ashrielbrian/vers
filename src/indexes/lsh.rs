@@ -1,14 +1,15 @@
 use dashmap::DashSet;
 use itertools::Itertools;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::collections::HashSet;
+use rand::prelude::SliceRandom;
 
-use rand::seq::{index, SliceRandom};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Eq, PartialEq, Hash)]
 pub struct HashKey<const N: usize>(pub [u32; N]);
-#[derive(Copy, Clone, Debug)]
-pub struct Vector<const N: usize>(pub [f32; N]);
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct Vector<const N: usize>(#[serde(with = "serde_arrays")] pub [f32; N]);
 
 impl<const N: usize> Vector<N> {
     pub fn subtract_from(&self, other: &Vector<N>) -> Vector<N> {
@@ -43,6 +44,7 @@ impl<const N: usize> Vector<N> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct Hyperplane<const N: usize> {
     coefficients: Vector<N>,
     constant: f32,
@@ -60,20 +62,22 @@ impl<const N: usize> Hyperplane<N> {
         return &self.coefficients.dot_product(&point) + self.constant >= 0.0;
     }
 }
-
+#[derive(Serialize, Deserialize)]
 enum Node<const N: usize> {
     Inner(Box<InnerNode<N>>),
     Leaf(Box<LeafNode>),
 }
-
+#[derive(Serialize, Deserialize)]
 struct InnerNode<const N: usize> {
     hyperplane: Hyperplane<N>,
     left_node: Node<N>,
     right_node: Node<N>,
 }
 
+#[derive(Serialize, Deserialize)]
 struct LeafNode(Vec<usize>);
 
+#[derive(Serialize, Deserialize)]
 pub struct ANNIndex<const N: usize> {
     // vector containing all the trees that make up the index, with each element in the vector
     // indicating the root node of the tree
