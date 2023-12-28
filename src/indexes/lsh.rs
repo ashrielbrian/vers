@@ -5,7 +5,6 @@ use rand::prelude::SliceRandom;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-
 #[derive(Eq, PartialEq, Hash)]
 pub struct HashKey<const N: usize>(pub [u32; N]);
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -132,13 +131,13 @@ impl<const N: usize> ANNIndex<N> {
         } else {
             let (hyperplane, above, below) = Self::build_hyperplane(&indexes, all_vecs);
 
-            let left_node = Self::build_a_tree(max_size, &above, all_vecs);
-            let right_node = Self::build_a_tree(max_size, &below, all_vecs);
+            let node_above = Self::build_a_tree(max_size, &above, all_vecs);
+            let node_below = Self::build_a_tree(max_size, &below, all_vecs);
 
             return Node::Inner(Box::new(InnerNode {
                 hyperplane,
-                left_node,
-                right_node,
+                left_node: node_below,
+                right_node: node_above,
             }));
         }
     }
@@ -172,7 +171,6 @@ impl<const N: usize> ANNIndex<N> {
         let mut dedup_vec_ids = vec![];
         Self::deduplicate(&vectors, &vector_ids, &mut dedup_vecs, &mut dedup_vec_ids);
 
-        // TODO: can parallelize this
         // maps each index to the unique vector
         let all_indexes_from_unique_vecs = (0..dedup_vecs.len()).collect();
 
@@ -181,6 +179,11 @@ impl<const N: usize> ANNIndex<N> {
             .map(|_| Self::build_a_tree(max_size, &all_indexes_from_unique_vecs, &dedup_vecs))
             .collect();
 
+        println!(
+            "Number of vectors in index: {}. Num of vec IDs in index: {}",
+            dedup_vec_ids.len(),
+            dedup_vecs.len()
+        );
         ANNIndex {
             trees,
             values: dedup_vecs,

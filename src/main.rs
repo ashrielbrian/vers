@@ -1,10 +1,27 @@
+use itertools::Itertools;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::BufRead;
 use vers::indexes::ivfflat::IVFFlatIndex;
 use vers::indexes::lsh::{ANNIndex, Vector};
+
+fn search_exhaustive<const N: usize>(
+    vector_data: &Vec<Vector<N>>,
+    query: &Vector<N>,
+    top_k: usize,
+) -> Vec<(usize, f32)> {
+    let candidates: Vec<(usize, f32)> = vector_data
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i, v.squared_euclidean(&query)))
+        .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .take(top_k)
+        .collect();
+
+    candidates
+}
 
 fn load_wiki_vector<const N: usize>(
     file_path: &str,
@@ -41,6 +58,12 @@ fn load_wiki_vector<const N: usize>(
         all_vecs.push(Vector(emb))
     }
 
+    println!(
+        "{} {} {}",
+        all_vecs.len(),
+        word_to_idx.len(),
+        idx_to_word.len()
+    );
     (all_vecs, word_to_idx, idx_to_word)
 }
 
@@ -70,7 +93,38 @@ fn build_index<const N: usize>(
         println!("---> SEARCH WORD: {search_word}");
         for (i, (results_idx, distance)) in results.iter().enumerate() {
             println!(
-                "{i}. Word: {} Distance: {}",
+                "{i}. Word: {}. Distance: {}",
+                idx_to_word.get(results_idx).unwrap(),
+                distance.sqrt()
+            )
+        }
+    }
+
+    println!("----------------------------------");
+    let selected_words = ["king", "prince"];
+    let selected_vector_ids: Vec<&usize> = selected_words
+        .iter()
+        .map(|w| word_to_idx.get(*w).unwrap())
+        .collect();
+
+    for (vec_id, search_word) in selected_vector_ids.iter().zip(selected_words) {
+        let results = index.search_approximate(vector_data[**vec_id], 5);
+
+        println!("---> SEARCH APPRX WORD: {search_word}");
+        for (i, (results_idx, distance)) in results.iter().enumerate() {
+            println!(
+                "{i}. Word: {}. Distance: {}",
+                idx_to_word.get(results_idx).unwrap(),
+                distance.sqrt()
+            )
+        }
+
+        // search exhaustively as the recall benchmark
+        let exhaustive_candidates = search_exhaustive(&vector_data, &vector_data[**vec_id], 5);
+        println!("---> SEARCH EXHAUSTIVELY WORD: {search_word}");
+        for (i, (results_idx, distance)) in exhaustive_candidates.iter().enumerate() {
+            println!(
+                "{i}. Word: {}. Distance: {}",
                 idx_to_word.get(results_idx).unwrap(),
                 distance.sqrt()
             )
@@ -83,7 +137,7 @@ fn main() {
     const DIM: usize = 300;
     let (wiki, word_to_idx, idx_to_word) = load_wiki_vector::<DIM>("wiki-news-300d-1M.vec");
 
-    let index = build_index(&wiki, 3, 25, &word_to_idx, &idx_to_word);
+    let index = build_index(&wiki, 8, 250, &word_to_idx, &idx_to_word);
 
     let val = Vector([1.0, 2.0, 3.0]);
     println!("{:?}", val);
