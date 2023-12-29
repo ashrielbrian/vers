@@ -2,11 +2,15 @@ use dashmap::DashSet;
 use itertools::Itertools;
 use rand::prelude::SliceRandom;
 
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{
+    IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
 #[derive(Eq, PartialEq, Hash)]
 pub struct HashKey<const N: usize>(pub [u32; N]);
+
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Vector<const N: usize>(#[serde(with = "serde_arrays")] pub [f32; N]);
 
@@ -78,6 +82,7 @@ struct LeafNode(Vec<usize>);
 
 #[derive(Serialize, Deserialize)]
 pub struct ANNIndex<const N: usize> {
+    max_node_size: usize,
     // vector containing all the trees that make up the index, with each element in the vector
     // indicating the root node of the tree
     trees: Vec<Node<N>>,
@@ -185,6 +190,7 @@ impl<const N: usize> ANNIndex<N> {
             dedup_vecs.len()
         );
         ANNIndex {
+            max_node_size: max_size,
             trees,
             values: dedup_vecs,
             ids: dedup_vec_ids,
@@ -264,5 +270,53 @@ impl<const N: usize> ANNIndex<N> {
             // to the non-dedup'ed IDs
             .map(|(idx, distance)| (self.ids[idx], distance))
             .collect()
+    }
+    fn insert(
+        current_node: &mut Node<N>,
+        embedding: &Vector<N>,
+        vec_id: usize,
+        max_node_size: usize,
+        all_vecs: &Vec<Vector<N>>,
+    ) {
+        match current_node {
+            Node::Inner(inner_node) => {
+                let is_above = inner_node.hyperplane.point_is_above(&embedding);
+
+                let next_node = if is_above {
+                    &mut inner_node.right_node
+                } else {
+                    &mut inner_node.left_node
+                };
+
+                Self::insert(next_node, embedding, vec_id, max_node_size, all_vecs);
+            }
+            Node::Leaf(leaf_node) => {
+                if leaf_node.0.len() + 1 > max_node_size {
+                    let mut new_indexes = leaf_node.0.clone();
+                    new_indexes.push(vec_id);
+
+                    let result_node = Self::build_a_tree(max_node_size, &new_indexes, all_vecs);
+                    *current_node = result_node;
+                } else {
+                    leaf_node.0.push(vec_id);
+                }
+            }
+        }
+    }
+}
+
+pub trait Index<const N: usize> {
+    fn add(&mut self, embedding: Vector<N>, vec_id: usize);
+}
+
+impl<const N: usize> Index<N> for ANNIndex<N> {
+    fn add(&mut self, embedding: Vector<N>, vec_id: usize) {
+        // assume embedding is already dedup'ed
+        self.values.push(embedding);
+        self.ids.push(vec_id);
+
+        self.trees.par_iter_mut().for_each(|tree| {
+            Self::insert(tree, &embedding, vec_id, self.max_node_size, &self.values)
+        })
     }
 }
