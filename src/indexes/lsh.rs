@@ -291,6 +291,8 @@ impl<const N: usize> ANNIndex<N> {
                 Self::insert(next_node, embedding, vec_id, max_node_size, all_vecs);
             }
             Node::Leaf(leaf_node) => {
+                // split the node such that the current node becomes an InnerNode, if the number of elements exceed
+                // the max node size. Otherwise, simply add the ID to the leaf node.
                 if leaf_node.0.len() + 1 > max_node_size {
                     let mut new_indexes = leaf_node.0.clone();
                     new_indexes.push(vec_id);
@@ -311,7 +313,7 @@ pub trait Index<const N: usize> {
 
 impl<const N: usize> Index<N> for ANNIndex<N> {
     fn add(&mut self, embedding: Vector<N>, vec_id: usize) {
-        // assume embedding is already dedup'ed
+        // TODO: check if embedding hash exists in the index already
         self.values.push(embedding);
         self.ids.push(vec_id);
 
