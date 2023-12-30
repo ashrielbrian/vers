@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 #[derive(Eq, PartialEq, Hash)]
 pub struct HashKey<const N: usize>(pub [u32; N]);
 
-#[derive(Copy, Clone)]
-pub struct Vector<const N: usize>(pub [f32; N]);
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct Vector<const N: usize>(#[serde(with = "serde_arrays")] pub [f32; N]);
 
 impl<const N: usize> Vector<N> {
     pub fn subtract_from(&self, other: &Vector<N>) -> Vector<N> {
