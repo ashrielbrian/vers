@@ -1,13 +1,15 @@
+use super::base::Index;
 use crate::indexes::base::Vector;
 use itertools::Itertools;
 use rand::{self, Rng};
+use serde::{Deserialize, Serialize};
 
-use super::base::Index;
+#[derive(Serialize, Deserialize)]
 pub struct IVFFlatIndex<const N: usize> {
     num_centroids: usize,
     values: Vec<Vector<N>>,
     centroids: Vec<Vector<N>>,
-    // assignments: Vec<usize>,
+    assignments: Vec<usize>,
     ids: Vec<Vec<usize>>,
 }
 
@@ -85,17 +87,18 @@ impl<const N: usize> IVFFlatIndex<N> {
     }
 
     pub fn build_index(
-        data: Vec<Vector<N>>,
+        num_clusters: usize,
         num_attempts: usize,
-        k: usize,
         max_iterations: usize,
+        vectors: &Vec<Vector<N>>,
     ) -> Self {
         let mut best_cost = f32::INFINITY;
         let mut best_centroids: Vec<Vector<N>> = Vec::new();
         let mut best_assignments: Vec<usize> = Vec::new();
         for _ in 0..num_attempts {
-            let (centroids, assignments) = Self::build_kmeans(&data, k, max_iterations);
-            let cost = Self::calculate_kmeans_cost(&data, &centroids, &assignments);
+            let (centroids, assignments) =
+                Self::build_kmeans(&vectors, num_clusters, max_iterations);
+            let cost = Self::calculate_kmeans_cost(&vectors, &centroids, &assignments);
 
             if cost < best_cost {
                 best_cost = cost;
@@ -104,17 +107,17 @@ impl<const N: usize> IVFFlatIndex<N> {
             }
         }
 
-        let mut ids: Vec<Vec<usize>> = vec![vec![]; k];
+        let mut ids: Vec<Vec<usize>> = vec![vec![]; num_clusters];
         best_assignments
-            .into_iter()
+            .iter()
             .enumerate()
-            .for_each(|(vec_id, cluster_id)| ids[cluster_id].push(vec_id));
+            .for_each(|(vec_id, cluster_id)| ids[*cluster_id].push(vec_id));
 
         IVFFlatIndex {
-            num_centroids: k,
-            values: data,
+            num_centroids: num_clusters,
+            values: vectors.clone(),
             centroids: best_centroids,
-            // assignments: best_assignments,
+            assignments: best_assignments,
             ids: ids,
         }
     }
