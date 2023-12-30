@@ -1,4 +1,10 @@
-use serde::{Deserialize, Serialize};
+use bincode;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::{
+    fs,
+    io::{self, BufReader, BufWriter},
+    path::Path,
+};
 
 #[derive(Eq, PartialEq, Hash)]
 pub struct HashKey<const N: usize>(pub [u32; N]);
@@ -6,9 +12,40 @@ pub struct HashKey<const N: usize>(pub [u32; N]);
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Vector<const N: usize>(#[serde(with = "serde_arrays")] pub [f32; N]);
 
-pub trait Index<const N: usize> {
+// the trait bound DeserialzedOwned is required for bincode::deserialize_from, basically
+// specifying that any type that implements Index, must also implement Deserialize, Serialize(and Sized).
+pub trait Index<const N: usize>: Sized + DeserializeOwned + Serialize {
     fn add(&mut self, embedding: Vector<N>, vec_id: usize);
     fn search_approximate(&self, query: Vector<N>, top_k: usize) -> Vec<(usize, f32)>;
+
+    fn save_index(&self, file_path: &str) -> io::Result<()> {
+        // open file with a buffer
+        let file = fs::File::create(file_path)?;
+        let writer = BufWriter::new(file);
+
+        bincode::serialize_into(writer, &self).map_err(|err| {
+            // ensures func returns a Result with io::Error
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Serialization error: {}", err),
+            )
+        })
+    }
+
+    fn load_index(file_path: impl AsRef<Path>) -> io::Result<Self>
+    where
+        Self: Sized,
+    {
+        let file = fs::File::open(file_path)?;
+        let reader = BufReader::new(file);
+
+        bincode::deserialize_from(reader).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Deserialization error: {}", err),
+            )
+        })
+    }
 }
 
 impl<const N: usize> Vector<N> {

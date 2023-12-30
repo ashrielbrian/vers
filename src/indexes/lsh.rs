@@ -3,17 +3,12 @@ use itertools::Itertools;
 use rand::prelude::SliceRandom;
 
 use crate::indexes::base::{HashKey, Index, Vector};
-use bincode;
+
 use rayon::iter::{
     IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashSet,
-    fs,
-    io::{self, BufReader, BufWriter},
-    path::Path,
-};
+use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize)]
 struct Hyperplane<const N: usize> {
@@ -253,32 +248,6 @@ impl<const N: usize> ANNIndex<N> {
                 }
             }
         }
-    }
-
-    pub fn save_index(&self, file_path: &str) -> io::Result<()> {
-        // open file with a buffer
-        let file = fs::File::create(file_path)?;
-        let writer = BufWriter::new(file);
-
-        bincode::serialize_into(writer, &self).map_err(|err| {
-            // ensures func returns a Result with io::Error
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Serialization error: {}", err),
-            )
-        })
-    }
-
-    pub fn load_index(file_path: impl AsRef<Path>) -> io::Result<Self> {
-        let file = fs::File::open(file_path)?;
-        let reader = BufReader::new(file);
-
-        bincode::deserialize_from(reader).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Deserialization error: {}", err),
-            )
-        })
     }
 }
 
