@@ -1,10 +1,14 @@
-use crate::indexes::base::{HashKey, Vector};
+use crate::indexes::base::Vector;
+use itertools::Itertools;
 use rand::{self, Rng};
+
+use super::base::Index;
 pub struct IVFFlatIndex<const N: usize> {
     num_centroids: usize,
     values: Vec<Vector<N>>,
     centroids: Vec<Vector<N>>,
-    assignments: Vec<usize>,
+    // assignments: Vec<usize>,
+    ids: Vec<Vec<usize>>,
 }
 
 impl<const N: usize> IVFFlatIndex<N> {
@@ -89,7 +93,7 @@ impl<const N: usize> IVFFlatIndex<N> {
         let mut best_cost = f32::INFINITY;
         let mut best_centroids: Vec<Vector<N>> = Vec::new();
         let mut best_assignments: Vec<usize> = Vec::new();
-        for _ in (0..num_attempts) {
+        for _ in 0..num_attempts {
             let (centroids, assignments) = Self::build_kmeans(&data, k, max_iterations);
             let cost = Self::calculate_kmeans_cost(&data, &centroids, &assignments);
 
@@ -100,11 +104,18 @@ impl<const N: usize> IVFFlatIndex<N> {
             }
         }
 
+        let mut ids: Vec<Vec<usize>> = vec![vec![]; k];
+        best_assignments
+            .into_iter()
+            .enumerate()
+            .for_each(|(vec_id, cluster_id)| ids[cluster_id].push(vec_id));
+
         IVFFlatIndex {
             num_centroids: k,
             values: data,
             centroids: best_centroids,
-            assignments: best_assignments,
+            // assignments: best_assignments,
+            ids: ids,
         }
     }
 
@@ -120,4 +131,55 @@ impl<const N: usize> IVFFlatIndex<N> {
             })
             .fold(0.0, |acc, val| acc + val)
     }
+}
+
+impl<const N: usize> Index<N> for IVFFlatIndex<N> {
+    fn search_approximate(&self, query: Vector<N>, top_k: usize) -> Vec<(usize, f32)> {
+        // get nearest clusters, and sort distances
+        let nearest_centroids: Vec<(usize, f32)> = self
+            .centroids
+            .iter()
+            .enumerate()
+            .map(|(i, centroid)| (i, centroid.cosine_similarity(&query)))
+            .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .collect();
+
+        let mut candidates: Vec<(usize, f32)> = Vec::new();
+
+        // search nearest cluster
+        let mut curr_cluster = 0;
+        let mut remainder = top_k;
+        while candidates.len() < top_k {
+            let cluster_id = nearest_centroids[curr_cluster];
+            let vec_ids_in_cluster = &self.ids[cluster_id.0];
+
+            let potential_candidates: Vec<(usize, f32)> = vec_ids_in_cluster
+                .iter()
+                .map(|vec_id| (vec_id, self.values[*vec_id]))
+                .map(|(vec_id, vec)| (*vec_id, vec.cosine_similarity(&query)))
+                .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .take(top_k)
+                .collect();
+
+            // return top-k from nearest cluster
+            if potential_candidates.len() < remainder {
+                // if insufficient results, search the other clusters until we get k results
+                remainder -= potential_candidates.len();
+                candidates.extend(potential_candidates);
+                curr_cluster += 1;
+            } else if potential_candidates.len() > remainder {
+                for i in 0..remainder {
+                    candidates.push(potential_candidates[i]);
+                    break;
+                }
+            } else {
+                candidates.extend(potential_candidates);
+                break;
+            }
+        }
+
+        candidates
+    }
+
+    fn add(&mut self, embedding: Vector<N>, vec_id: usize) {}
 }
