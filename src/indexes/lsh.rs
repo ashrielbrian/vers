@@ -2,11 +2,16 @@ use dashmap::DashSet;
 use itertools::Itertools;
 use rand::prelude::SliceRandom;
 
+use bincode;
 use rayon::iter::{
     IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    fs,
+    io::{self, Read, Write},
+};
 
 #[derive(Eq, PartialEq, Hash)]
 pub struct HashKey<const N: usize>(pub [u32; N]);
@@ -304,6 +309,30 @@ impl<const N: usize> ANNIndex<N> {
                 }
             }
         }
+    }
+
+    pub fn save_index(&self, file_path: &str) -> io::Result<()> {
+        let serialized = bincode::serialize(&self).unwrap();
+        let mut file = fs::File::create(file_path)?;
+
+        file.write_all(&serialized)?;
+
+        Ok(())
+    }
+
+    pub fn load_index(file_path: &str) -> Self {
+        let mut file =
+            fs::File::open(file_path).expect("Could not find file at the specified location.");
+
+        // read binary data
+        let mut serialized = Vec::new();
+        file.read_to_end(&mut serialized).unwrap();
+
+        // deserialize into ANNIndex
+        let index =
+            bincode::deserialize(&serialized[..]).expect("Failed to deserialize into an ANNIndex.");
+
+        index
     }
 }
 
