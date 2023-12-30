@@ -220,25 +220,6 @@ impl<const N: usize> ANNIndex<N> {
         }
     }
 
-    pub fn search_approximate(&self, query: Vector<N>, top_k: i32) -> Vec<(usize, f32)> {
-        // using dashset instead of hashset as it support concurrent mutations to the set
-        let candidates = DashSet::new();
-
-        self.trees.par_iter().for_each(|tree| {
-            self.tree_result(query, top_k, tree, &candidates);
-        });
-
-        candidates
-            .into_iter()
-            .map(|idx| (idx, self.values[idx].squared_euclidean(&query)))
-            .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-            .take(top_k as usize)
-            // TODO: consider removing the self.ids, as it's slightly misleading. this vector is deduplicated, so that the
-            // the number of elements in self.ids is the same as the unique vectors, but the elements themselves are indices
-            // to the non-dedup'ed IDs
-            .map(|(idx, distance)| (self.ids[idx], distance))
-            .collect()
-    }
     fn insert(
         current_node: &mut Node<N>,
         embedding: &Vector<N>,
@@ -310,5 +291,24 @@ impl<const N: usize> Index<N> for ANNIndex<N> {
         self.trees.par_iter_mut().for_each(|tree| {
             Self::insert(tree, &embedding, vec_id, self.max_node_size, &self.values)
         })
+    }
+    fn search_approximate(&self, query: Vector<N>, top_k: usize) -> Vec<(usize, f32)> {
+        // using dashset instead of hashset as it support concurrent mutations to the set
+        let candidates = DashSet::new();
+
+        self.trees.par_iter().for_each(|tree| {
+            self.tree_result(query, top_k as i32, tree, &candidates);
+        });
+
+        candidates
+            .into_iter()
+            .map(|idx| (idx, self.values[idx].squared_euclidean(&query)))
+            .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .take(top_k as usize)
+            // TODO: consider removing the self.ids, as it's slightly misleading. this vector is deduplicated, so that the
+            // the number of elements in self.ids is the same as the unique vectors, but the elements themselves are indices
+            // to the non-dedup'ed IDs
+            .map(|(idx, distance)| (self.ids[idx], distance))
+            .collect()
     }
 }

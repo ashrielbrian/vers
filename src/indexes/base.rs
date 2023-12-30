@@ -8,6 +8,7 @@ pub struct Vector<const N: usize>(#[serde(with = "serde_arrays")] pub [f32; N]);
 
 pub trait Index<const N: usize> {
     fn add(&mut self, embedding: Vector<N>, vec_id: usize);
+    fn search_approximate(&self, query: Vector<N>, top_k: usize) -> Vec<(usize, f32)>;
 }
 
 impl<const N: usize> Vector<N> {
