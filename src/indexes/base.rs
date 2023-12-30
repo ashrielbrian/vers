@@ -41,4 +41,8 @@ impl<const N: usize> Vector<N> {
             .map(|(a, b)| (a - b).powi(2))
             .sum();
     }
+
+    pub fn cosine_similarity(&self, other: &Vector<N>) -> f32 {
+        self.dot_product(other) / (self.dot_product(self).sqrt() * other.dot_product(other).sqrt())
+    }
 }
