@@ -2,7 +2,7 @@ use dashmap::DashSet;
 use itertools::Itertools;
 use rand::prelude::SliceRandom;
 
-use crate::indexes::base::{HashKey, Vector};
+use crate::indexes::base::{HashKey, Index, Vector};
 use bincode;
 use rayon::iter::{
     IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
@@ -299,10 +299,6 @@ impl<const N: usize> ANNIndex<N> {
             )
         })
     }
-}
-
-pub trait Index<const N: usize> {
-    fn add(&mut self, embedding: Vector<N>, vec_id: usize);
 }
 
 impl<const N: usize> Index<N> for ANNIndex<N> {

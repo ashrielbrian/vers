@@ -6,6 +6,10 @@ pub struct HashKey<const N: usize>(pub [u32; N]);
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Vector<const N: usize>(#[serde(with = "serde_arrays")] pub [f32; N]);
 
+pub trait Index<const N: usize> {
+    fn add(&mut self, embedding: Vector<N>, vec_id: usize);
+}
+
 impl<const N: usize> Vector<N> {
     pub fn subtract_from(&self, other: &Vector<N>) -> Vector<N> {
         let vals = self.0.iter().zip(&other.0).map(|(a, b)| b - a);
