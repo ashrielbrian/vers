@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     fs,
-    io::{self, Read, Write},
+    io::{self, BufReader, BufWriter, Read, Write},
+    path::Path,
 };
 
 #[derive(Eq, PartialEq, Hash)]
@@ -312,27 +313,29 @@ impl<const N: usize> ANNIndex<N> {
     }
 
     pub fn save_index(&self, file_path: &str) -> io::Result<()> {
-        let serialized = bincode::serialize(&self).unwrap();
-        let mut file = fs::File::create(file_path)?;
+        // open file with a buffer
+        let file = fs::File::create(file_path)?;
+        let writer = BufWriter::new(file);
 
-        file.write_all(&serialized)?;
-
-        Ok(())
+        bincode::serialize_into(writer, &self).map_err(|err| {
+            // ensures func returns a Result with io::Error
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Serialization error: {}", err),
+            )
+        })
     }
 
-    pub fn load_index(file_path: &str) -> Self {
-        let mut file =
-            fs::File::open(file_path).expect("Could not find file at the specified location.");
+    pub fn load_index(file_path: impl AsRef<Path>) -> io::Result<Self> {
+        let file = fs::File::open(file_path)?;
+        let reader = BufReader::new(file);
 
-        // read binary data
-        let mut serialized = Vec::new();
-        file.read_to_end(&mut serialized).unwrap();
-
-        // deserialize into ANNIndex
-        let index =
-            bincode::deserialize(&serialized[..]).expect("Failed to deserialize into an ANNIndex.");
-
-        index
+        bincode::deserialize_from(reader).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Deserialization error: {}", err),
+            )
+        })
     }
 }
 
