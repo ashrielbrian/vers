@@ -21,7 +21,12 @@ Like any sensible package, the API aims to be dead simple.
 1. Build an index:
 
 ```rust
-    let mut index = IVFFlatIndex::build_index(num_clusters: 10, num_attempts: 3, max_iterations: 5, &vectors);
+    let mut index = IVFFlatIndex::build_index(
+        num_clusters,
+        num_attempts,
+        max_iterations,
+        &vectors
+    );
 ```
 
 2. Add an embedding vector into the index:
@@ -33,7 +38,7 @@ Like any sensible package, the API aims to be dead simple.
 3. Persist the index to disk:
 
 ```rust
-    index.save_index("wiki.index");
+    let _ = index.save_index("wiki.index");
 ```
 
 4. Load the index from disk:
@@ -49,10 +54,9 @@ Like any sensible package, the API aims to be dead simple.
 
 ```rust
     let results = index.search_approximate(
-        query: embs.get("king"),
-        top_k: 10
-    );
-    // kings, queen, monarch, ...
+        embs.get("king"),   // query vector
+        10                  // top_k
+    ); // kings, queen, monarch, ...
 ```
 
 **That said, the API is unstable and subject to change. In particular, I really dislike having to pass in the unique vector ID into `search_approximate`.**
