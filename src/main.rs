@@ -1,11 +1,13 @@
 use itertools::Itertools;
 use rand::seq::SliceRandom;
-use rand::Rng;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::BufRead;
+use vers::indexes::base::{Index, Vector};
 use vers::indexes::ivfflat::IVFFlatIndex;
-use vers::indexes::lsh::{ANNIndex, Vector};
+use vers::indexes::lsh::ANNIndex;
+
+const DIM: usize = 300;
 
 fn search_exhaustive<const N: usize>(
     vector_data: &Vec<Vector<N>>,
@@ -29,7 +31,10 @@ fn load_wiki_vector<const N: usize>(
     Vec<Vector<N>>,
     HashMap<String, usize>,
     HashMap<usize, String>,
+    Vec<(String, [f32; N])>,
 ) {
+    // this function loads all the words from the wikipedia dataset, but deliberately excludes `queen`
+    // so it can be added back manually later.
     let vector_file = fs::File::open(file_path).expect("Should be able to read file");
     let reader = std::io::BufReader::new(vector_file);
 
@@ -37,17 +42,13 @@ fn load_wiki_vector<const N: usize>(
     let mut all_vecs = Vec::new();
     let mut word_to_idx: HashMap<String, usize> = HashMap::new();
     let mut idx_to_word: HashMap<usize, String> = HashMap::new();
+    let mut test_embs: Vec<(String, [f32; N])> = Vec::new();
 
     for wrapped_line in reader.lines().skip(1) {
         let line = wrapped_line.unwrap();
 
         let mut split_by_spaces = line.split_whitespace();
         let word = split_by_spaces.next().unwrap();
-        word_to_idx.insert(word.to_owned(), curr_idx);
-        idx_to_word.insert(curr_idx, word.to_owned());
-
-        curr_idx += 1;
-
         let emb: [f32; N] = split_by_spaces
             .into_iter()
             .map(|d| d.parse::<f32>().unwrap())
@@ -55,7 +56,23 @@ fn load_wiki_vector<const N: usize>(
             .try_into()
             .unwrap();
 
+        if word == "queen" {
+            println!("{} {}", word, curr_idx);
+            test_embs.push((word.to_string(), emb));
+            continue;
+        }
+
+        word_to_idx.insert(word.to_owned(), curr_idx);
+        idx_to_word.insert(curr_idx, word.to_owned());
+
+        curr_idx += 1;
         all_vecs.push(Vector(emb))
+    }
+
+    // verify does not contain `queen`
+    match word_to_idx.get("queen") {
+        Some(_) => println!("Found queen!"),
+        None => println!("No queen, not to worry!"),
     }
 
     println!(
@@ -64,7 +81,7 @@ fn load_wiki_vector<const N: usize>(
         word_to_idx.len(),
         idx_to_word.len()
     );
-    (all_vecs, word_to_idx, idx_to_word)
+    (all_vecs, word_to_idx, idx_to_word, test_embs)
 }
 
 fn build_index<const N: usize>(
@@ -133,12 +150,66 @@ fn build_index<const N: usize>(
 
     index
 }
+
+fn test_ivfflat<const N: usize>(
+    vectors: &Vec<Vector<N>>,
+    word_to_idx: &HashMap<String, usize>,
+    idx_to_word: &mut HashMap<usize, String>,
+    num_clusters: usize,
+    num_attempts: usize,
+    max_iterations: usize,
+    test_embs: &Vec<(String, [f32; N])>,
+) {
+    println!("LSH Index:-----");
+    let index_file_name = "ivfflat.index";
+
+    // build the LSH index
+    let mut index = IVFFlatIndex::build_index(num_clusters, num_attempts, max_iterations, &vectors);
+
+    // test adding new embeddings to the index
+    for ((word, emb), vec_id) in test_embs.into_iter().zip([999993])
+    // since there are 999994 total wiki vectors, and we omitted one element (queen)
+    {
+        println!("Inserting {} {}", word, vec_id);
+        idx_to_word.insert(vec_id, word.to_string());
+        index.add(Vector(*emb), vec_id);
+    }
+
+    // persist the index
+    match index.save_index(index_file_name) {
+        Ok(_) => println!("Index saved successfully!"),
+        Err(e) => eprintln!("Index save failed: {}", e),
+    };
+
+    // load the index
+    let reload_index = match IVFFlatIndex::load_index(index_file_name) {
+        Ok(index) => index,
+        Err(e) => panic!("Failed to load index! {}", e),
+    };
+
+    // search the index
+    let results = reload_index.search_approximate(vectors[*word_to_idx.get("king").unwrap()], 20);
+
+    // visualize the results
+    for (i, (results_idx, distance)) in results.iter().enumerate() {
+        println!(
+            "{i}. Word: {}. Distance: {}",
+            idx_to_word.get(results_idx).unwrap(),
+            distance.sqrt()
+        )
+    }
+}
 fn main() {
-    const DIM: usize = 300;
-    let (wiki, word_to_idx, idx_to_word) = load_wiki_vector::<DIM>("wiki-news-300d-1M.vec");
+    let (wiki, mut word_to_idx, mut idx_to_word, test_embs) =
+        load_wiki_vector::<DIM>("wiki-news-300d-1M.vec");
 
-    let index = build_index(&wiki, 8, 250, &word_to_idx, &idx_to_word);
-
-    let val = Vector([1.0, 2.0, 3.0]);
-    println!("{:?}", val);
+    test_ivfflat(
+        &wiki,
+        &mut word_to_idx,
+        &mut idx_to_word,
+        10,
+        3,
+        5,
+        &test_embs,
+    );
 }
