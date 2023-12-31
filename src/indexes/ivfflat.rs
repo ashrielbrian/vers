@@ -201,5 +201,18 @@ impl<const N: usize> Index<N> for IVFFlatIndex<N> {
         candidates
     }
 
-    fn add(&mut self, embedding: Vector<N>, vec_id: usize) {}
+    fn add(&mut self, embedding: Vector<N>, vec_id: usize) {
+        let closest_centroid_id = self
+            .centroids
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i, v.squared_euclidean(&embedding)))
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .unwrap();
+
+        let vec_id = self.assignments.len();
+        self.values.push(embedding);
+        self.assignments.push(closest_centroid_id.0);
+        self.ids[closest_centroid_id.0].push(vec_id);
+    }
 }
