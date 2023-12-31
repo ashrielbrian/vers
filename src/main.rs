@@ -151,6 +151,39 @@ fn build_index<const N: usize>(
     index
 }
 
+fn test_lsh<const N: usize>(
+    vectors: &Vec<Vector<N>>,
+    word_to_idx: &HashMap<String, usize>,
+    idx_to_word: &HashMap<usize, String>,
+    num_trees: usize,
+    max_node_size: usize,
+) {
+    println!("LSH Index:-----");
+    let index_file_name = "lsh.index";
+
+    // build the LSH index
+    let vector_ids: Vec<usize> = (0..vectors.len()).collect();
+    let index = ANNIndex::build_index(num_trees, max_node_size, vectors, &vector_ids);
+
+    // search the index
+    let results = index.search_approximate(vectors[*word_to_idx.get("priceless").unwrap()], 20);
+
+    // visualize the results
+    for (i, (results_idx, distance)) in results.iter().enumerate() {
+        println!(
+            "{i}. Word: {}. Distance: {}",
+            idx_to_word.get(results_idx).unwrap(),
+            distance.sqrt()
+        )
+    }
+
+    // persist the index
+    let _ = index.save_index(index_file_name);
+
+    // load the index
+    let _reload_index: ANNIndex<N> = ANNIndex::load_index(index_file_name).unwrap();
+}
+
 fn test_ivfflat<const N: usize>(
     vectors: &Vec<Vector<N>>,
     word_to_idx: &HashMap<String, usize>,
@@ -160,10 +193,10 @@ fn test_ivfflat<const N: usize>(
     max_iterations: usize,
     test_embs: &Vec<(String, [f32; N])>,
 ) {
-    println!("LSH Index:-----");
+    println!("IVFFlat Index:-----");
     let index_file_name = "ivfflat.index";
 
-    // build the LSH index
+    // build the IVFFlat index
     let mut index = IVFFlatIndex::build_index(num_clusters, num_attempts, max_iterations, &vectors);
 
     // test adding new embeddings to the index
@@ -212,4 +245,6 @@ fn main() {
         5,
         &test_embs,
     );
+
+    test_lsh(&wiki, &word_to_idx, &idx_to_word, 8, 100);
 }
