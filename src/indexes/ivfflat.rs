@@ -1,7 +1,9 @@
 use super::base::Index;
 use crate::indexes::base::Vector;
+use dashmap::DashMap;
 use itertools::Itertools;
 use rand::{self, Rng};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -43,15 +45,27 @@ impl<const N: usize> IVFFlatIndex<N> {
             })
             .collect()
     }
-
     fn update_centroids(data: &Vec<Vector<N>>, assignments: &[usize], k: usize) -> Vec<Vector<N>> {
-        // k Vectors of N size
-        let mut new_centroids = vec![Vector([0.0; N]); k];
+        let mut sums = vec![Vector([0.0; N]); k];
+        let mut counts = vec![0; k];
 
-        for (data_point, cluster_index) in data.iter().zip(assignments) {
-            // TODO: technically this adds a data point of zeros to each centroid, skewing the average
-            // need to remove the effect of this zeros datapoint from each centroid.
-            new_centroids[*cluster_index] = new_centroids[*cluster_index].average(data_point);
+        // Sum all vectors for each centroid and count the number of vectors per centroid
+        for (data_point, &cluster_index) in data.iter().zip(assignments.iter()) {
+            sums[cluster_index] = sums[cluster_index].add(data_point);
+            counts[cluster_index] += 1;
+        }
+
+        // Calculate the average for each centroid
+        let mut new_centroids = Vec::with_capacity(k);
+        for (sum, &count) in sums.iter().zip(counts.iter()) {
+            if count > 0 {
+                // If there are vectors assigned to the centroid, calculate the average
+                new_centroids.push(sum.divide_by_scalar(count as f32));
+            } else {
+                // If no vectors are assigned, we can either choose a random vector or reinitialize the centroid
+                // For simplicity, we'll reinitialize to a zero vector here
+                new_centroids.push(Vector([0.0; N]));
+            }
         }
 
         new_centroids
@@ -64,7 +78,8 @@ impl<const N: usize> IVFFlatIndex<N> {
     ) -> (Vec<Vector<N>>, Vec<usize>) {
         let mut centroids = Self::initialize_centroids(data, k);
 
-        for _ in 0..max_iterations {
+        for i in 0..max_iterations {
+            println!("Iteration: {}", i);
             let assignments = Self::assign_to_clusters(data, &centroids);
             let new_centroids = Self::update_centroids(data, &assignments, k);
 
@@ -95,11 +110,13 @@ impl<const N: usize> IVFFlatIndex<N> {
         let mut best_cost = f32::INFINITY;
         let mut best_centroids: Vec<Vector<N>> = Vec::new();
         let mut best_assignments: Vec<usize> = Vec::new();
-        for _ in 0..num_attempts {
+        for i in 0..num_attempts {
+            println!("Attempt no. {}", i);
             let (centroids, assignments) =
                 Self::build_kmeans(&vectors, num_clusters, max_iterations);
             let cost = Self::calculate_kmeans_cost(&vectors, &centroids, &assignments);
 
+            println!("Cost: {}", cost);
             if cost < best_cost {
                 best_cost = cost;
                 best_centroids = centroids;
@@ -130,7 +147,7 @@ impl<const N: usize> IVFFlatIndex<N> {
         data.iter()
             .zip(assignments)
             .map(|(data_point, cluster_index)| {
-                data_point.squared_euclidean(&centroids[*cluster_index])
+                data_point.cosine_similarity(&centroids[*cluster_index])
             })
             .fold(0.0, |acc, val| acc + val)
     }
