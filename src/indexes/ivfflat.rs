@@ -35,8 +35,8 @@ impl<const N: usize> IVFFlatIndex<N> {
                     .iter()
                     .enumerate()
                     .min_by(|(_, a), (_, b)| {
-                        let dist_to_centroid_a = data_point.cosine_similarity(a);
-                        let dist_to_centroid_b = data_point.cosine_similarity(b);
+                        let dist_to_centroid_a = data_point.squared_euclidean(a);
+                        let dist_to_centroid_b = data_point.squared_euclidean(b);
 
                         dist_to_centroid_a.partial_cmp(&dist_to_centroid_b).unwrap()
                     })
@@ -147,7 +147,7 @@ impl<const N: usize> IVFFlatIndex<N> {
         data.iter()
             .zip(assignments)
             .map(|(data_point, cluster_index)| {
-                data_point.cosine_similarity(&centroids[*cluster_index])
+                data_point.squared_euclidean(&centroids[*cluster_index])
             })
             .fold(0.0, |acc, val| acc + val)
     }
@@ -160,7 +160,7 @@ impl<const N: usize> Index<N> for IVFFlatIndex<N> {
             .centroids
             .iter()
             .enumerate()
-            .map(|(i, centroid)| (i, centroid.cosine_similarity(&query)))
+            .map(|(i, centroid)| (i, centroid.squared_euclidean(&query)))
             .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .collect();
 
@@ -176,7 +176,7 @@ impl<const N: usize> Index<N> for IVFFlatIndex<N> {
             let potential_candidates: Vec<(usize, f32)> = vec_ids_in_cluster
                 .iter()
                 .map(|vec_id| (vec_id, self.values[*vec_id]))
-                .map(|(vec_id, vec)| (*vec_id, vec.cosine_similarity(&query)))
+                .map(|(vec_id, vec)| (*vec_id, vec.squared_euclidean(&query)))
                 .sorted_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
                 .take(top_k)
                 .collect();
