@@ -190,8 +190,8 @@ impl<const N: usize> Index<N> for IVFFlatIndex<N> {
             } else if potential_candidates.len() > remainder {
                 for i in 0..remainder {
                     candidates.push(potential_candidates[i]);
-                    break;
                 }
+                break;
             } else {
                 candidates.extend(potential_candidates);
                 break;
