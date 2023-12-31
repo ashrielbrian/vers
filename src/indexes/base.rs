@@ -49,6 +49,29 @@ pub trait Index<const N: usize>: Sized + DeserializeOwned + Serialize {
 }
 
 impl<const N: usize> Vector<N> {
+    pub fn add(&self, other: &Vector<N>) -> Vector<N> {
+        let result: [f32; N] = self
+            .0
+            .iter()
+            .zip(other.0)
+            .map(|(a, b)| a + b)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        Vector(result)
+    }
+
+    pub fn divide_by_scalar(&self, scalar: f32) -> Vector<N> {
+        let result: [f32; N] = self
+            .0
+            .iter()
+            .map(|a| a / scalar)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        Vector(result)
+    }
+
     pub fn subtract_from(&self, other: &Vector<N>) -> Vector<N> {
         let vals = self.0.iter().zip(&other.0).map(|(a, b)| b - a);
         let result: [f32; N] = vals.collect::<Vec<_>>().try_into().unwrap();
@@ -81,6 +104,12 @@ impl<const N: usize> Vector<N> {
     }
 
     pub fn cosine_similarity(&self, other: &Vector<N>) -> f32 {
-        self.dot_product(other) / (self.dot_product(self).sqrt() * other.dot_product(other).sqrt())
+        let norm_a = self.dot_product(self).sqrt();
+        let norm_b = other.dot_product(other).sqrt();
+
+        if norm_a == 0.0 || norm_b == 0.0 {
+            return 0.0;
+        }
+        self.dot_product(other) / (norm_a * norm_b)
     }
 }
