@@ -79,7 +79,6 @@ impl<const N: usize> IVFFlatIndex<N> {
         let mut centroids = Self::initialize_centroids(data, k);
 
         for i in 0..max_iterations {
-            println!("Iteration: {}", i);
             let assignments = Self::assign_to_clusters(data, &centroids);
             let new_centroids = Self::update_centroids(data, &assignments, k);
 
@@ -111,12 +110,10 @@ impl<const N: usize> IVFFlatIndex<N> {
         let mut best_centroids: Vec<Vector<N>> = Vec::new();
         let mut best_assignments: Vec<usize> = Vec::new();
         for i in 0..num_attempts {
-            println!("Attempt no. {}", i);
             let (centroids, assignments) =
                 Self::build_kmeans(&vectors, num_clusters, max_iterations);
             let cost = Self::calculate_kmeans_cost(&vectors, &centroids, &assignments);
 
-            println!("Cost: {}", cost);
             if cost < best_cost {
                 best_cost = cost;
                 best_centroids = centroids;
