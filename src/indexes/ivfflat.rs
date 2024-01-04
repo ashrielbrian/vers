@@ -29,7 +29,7 @@ impl<const N: usize> IVFFlatIndex<N> {
 
     fn assign_to_clusters(all_vecs: &Vec<Vector<N>>, centroids: &Vec<Vector<N>>) -> Vec<usize> {
         all_vecs
-            .iter()
+            .par_iter()
             .map(|data_point| {
                 centroids
                     .iter()
