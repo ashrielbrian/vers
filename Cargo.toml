@@ -13,3 +13,10 @@ rand = "0.8.5"
 rayon = "1.8.0"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_arrays = "0.1.0"
+
+[dev-dependencies]
+criterion = { version = "0.4", features = ["html_reports"] }
+
+[[bench]]
+name = "benchmark"
+harness = false
