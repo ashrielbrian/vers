@@ -1,9 +1,9 @@
 use itertools::Itertools;
 use std::collections::HashMap;
-use vers::indexes::base::{Index, Vector};
-use vers::indexes::ivfflat::IVFFlatIndex;
-use vers::indexes::lsh::ANNIndex;
 use vers::utils;
+use vers::ANNIndex;
+use vers::IVFFlatIndex;
+use vers::{Index, Vector};
 
 const DIM: usize = 300;
 
