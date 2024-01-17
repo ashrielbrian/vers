@@ -1,6 +1,5 @@
 use super::base::Index;
 use crate::indexes::base::Vector;
-use dashmap::DashMap;
 use itertools::Itertools;
 use rand::{self, Rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};

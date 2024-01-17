@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use std::collections::HashMap;
+
 use vers::utils;
 use vers::ANNIndex;
 use vers::IVFFlatIndex;
@@ -104,17 +105,18 @@ fn test_ivfflat<const N: usize>(
         )
     }
 }
+
 fn main() {
     let (wiki, mut word_to_idx, mut idx_to_word, test_embs) =
-        utils::load_wiki_vector::<DIM>("wiki-news-300d-1M.vec");
+        utils::load_wiki_vector::<DIM>("../wikidata.vec");
 
     test_ivfflat(
         &wiki,
         &mut word_to_idx,
         &mut idx_to_word,
-        10,
+        20,
         3,
-        5,
+        10,
         &test_embs,
     );
 
