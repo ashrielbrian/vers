@@ -1,6 +1,6 @@
-use std::{cell::RefCell, collections::HashMap};
-
 use pyo3::prelude::*;
+use std::time::Instant;
+use std::{cell::RefCell, collections::HashMap};
 
 use vers::{utils, Index, Vector};
 
@@ -45,20 +45,21 @@ fn test_wiki_ivfflat(
 ) {
     let vectors: Vec<Vector<300>> = vectors.iter().map(|v| v.0).collect();
 
-    Python::with_gil(|py| {
-        let obj = RefCell::new(idx_to_word);
-        let mut idx_to_word_borrowed = obj.borrow_mut();
+    let obj = RefCell::new(idx_to_word);
+    let mut idx_to_word_borrowed = obj.borrow_mut();
 
-        utils::test_ivfflat(
-            &vectors,
-            &word_to_idx,
-            &mut idx_to_word_borrowed,
-            num_clusters,
-            num_attempts,
-            max_iterations,
-            &test_embs,
-        );
-    })
+    let start = Instant::now();
+    utils::test_ivfflat(
+        &vectors,
+        &word_to_idx,
+        &mut idx_to_word_borrowed,
+        num_clusters,
+        num_attempts,
+        max_iterations,
+        &test_embs,
+    );
+    let duration = start.elapsed();
+    println!("Time taken to test IVFFlat: {:?}", duration);
 }
 
 #[pyfunction]
