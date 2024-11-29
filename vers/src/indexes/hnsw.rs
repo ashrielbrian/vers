@@ -5,6 +5,8 @@ use crate::Vector;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
+extern crate itertools;
+
 #[derive(Serialize, Deserialize)]
 pub struct HNSWIndex<const N: usize> {
     ef_construction: usize,
@@ -14,8 +16,25 @@ pub struct HNSWIndex<const N: usize> {
 
 #[derive(Serialize, Deserialize)]
 pub struct HNSWLayer<const N: usize> {
-    adjacency_list: HashMap<String, Vec<String>>,
+    adjacency_list: HashMap<String, HashSet<String>>,
     nodes: HashMap<String, Vec<Vector<N>>>,
+}
+
+impl<const N: usize> HNSWLayer<N> {
+    fn _add_edge(&mut self, u: &String, v: &String) {
+        // if self.adjacency_list.contains_key(&u) {}
+
+        if let Some(adjacency_set) = self.adjacency_list.get_mut(u) {
+            adjacency_set.insert(v.clone());
+        } else {
+            self.adjacency_list.insert(u.clone(), HashSet::new());
+            self.adjacency_list.get_mut(u).unwrap().insert(v.clone());
+        }
+    }
+    pub fn add_edge(&mut self, u: &String, v: &String) {
+        self._add_edge(u, v);
+        self._add_edge(v, u);
+    }
 }
 
 #[derive(PartialEq)]
@@ -54,21 +73,51 @@ impl<const N: usize> HNSWIndex<N> {
         }
     }
 
-    fn _add_node(&self) {}
-
     pub fn build_index(&self) {
         todo!()
     }
 
-    pub fn _search_layer(
+    fn _add_node_to_layer(
         entrypoint: Node<N>,
-        query_vector: Vector<N>,
+        target_node: &Node<N>,
         layer: &HNSWLayer<N>,
         ef_construction: usize,
         id_to_vec: &HashMap<String, Vector<N>>,
-    ) -> Vec<(String, f32)> {
+        // number of neighbours per node, also, node degrees
+        m: usize,
+    ) {
+        // use the probability functions to get the layer to place this node at
+        // run search from top layer all the way to the layer it was assigned.
+        // - need to add this node on this layer and all layers below it
+        // given an entrypoint, find all candidates (use _search_layer). once the candidates have been found,
+        // link the node_vector to the top M candidates, where M is the number of neighbours/edges per node.
+        // - add the node to the layer
+        // - update the adjacency list
+        let candidates = Self::_search_layer(
+            entrypoint,
+            target_node.vec,
+            layer,
+            ef_construction,
+            id_to_vec,
+        );
+
+        let selected_neighbours = if candidates.len() > m {
+            &candidates[candidates.len() - m..]
+        } else {
+            &candidates
+        };
+
+        // need to update the node relationships of all the neighbours
+        // add the node to this layer, and adjacency list
+    }
+    pub fn _search_layer(
+        entrypoint: Node<N>,
+        query_vector: &Vector<N>,
+        layer: &HNSWLayer<N>,
+        ef_construction: usize,
+        id_to_vec: &HashMap<String, Vector<N>>,
+    ) -> Vec<String> {
         // returns a list of candidates closest to the query vector for a given layer
-        let mut candidates: Vec<(String, f32)> = vec![];
         let mut queue: VecDeque<String> = VecDeque::new();
         let mut candidates_heap: BinaryHeap<DistanceMaxCandidatePair> = BinaryHeap::new();
 
@@ -82,7 +131,7 @@ impl<const N: usize> HNSWIndex<N> {
 
                     // if the current neighbour distance is smaller than the candidate with the largest distance, replace
                     // this candidate with the current neighbour
-                    if candidates.len() < ef_construction
+                    if candidates_heap.len() < ef_construction
                         || (candidates_heap.len() > 0
                             && neighbour_dist < candidates_heap.peek().unwrap().distance)
                     {
@@ -96,7 +145,10 @@ impl<const N: usize> HNSWIndex<N> {
             }
         }
 
-        candidates
+        // returns the candidates in descending order, i.e. the first ele has the largest distance to the query vector
+        itertools::unfold(candidates_heap, |heap| heap.pop())
+            .map(|candidate| candidate.candidate_id)
+            .collect()
     }
 }
 
