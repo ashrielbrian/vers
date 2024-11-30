@@ -17,13 +17,11 @@ pub struct HNSWIndex<const N: usize> {
 #[derive(Serialize, Deserialize)]
 pub struct HNSWLayer<const N: usize> {
     adjacency_list: HashMap<String, HashSet<String>>,
-    nodes: HashMap<String, Vec<Vector<N>>>,
+    nodes: HashMap<String, Vector<N>>,
 }
 
 impl<const N: usize> HNSWLayer<N> {
     fn _add_edge(&mut self, u: &String, v: &String) {
-        // if self.adjacency_list.contains_key(&u) {}
-
         if let Some(adjacency_set) = self.adjacency_list.get_mut(u) {
             adjacency_set.insert(v.clone());
         } else {
@@ -35,6 +33,56 @@ impl<const N: usize> HNSWLayer<N> {
         self._add_edge(u, v);
         self._add_edge(v, u);
     }
+
+    pub fn add_node(&mut self, node: &Node<N>) {
+        self.nodes.insert(node.id.clone(), node.vec.clone());
+    }
+
+    pub fn trim_edges(
+        &mut self,
+        node_id: &String,
+        max_num_edges: usize,
+        id_to_vec: &HashMap<String, Vector<N>>,
+    ) {
+        if let Some(neighbours) = self.adjacency_list.get_mut(node_id) {
+            if neighbours.len() > max_num_edges {
+                let node_vec = id_to_vec.get(node_id).unwrap();
+                let mut max_heap = BinaryHeap::new();
+
+                // get the distances between the node and all its neighbours. then, remove edges
+                // with the largest distances and update the adjacency list.
+                // TODO: potentially can make this faster by storing the distance in the adjacency list,
+                // so that instead of a hashset of strings, it would be a hashmap where the value is its distance.
+                // trade-off between space and speed.
+                for neighbour in neighbours.iter() {
+                    let neighbour_vec = id_to_vec.get(neighbour).unwrap();
+                    let dist = node_vec.squared_euclidean(neighbour_vec);
+                    max_heap.push(DistanceMaxCandidatePair {
+                        candidate_id: neighbour.clone(),
+                        distance: dist,
+                    });
+                }
+
+                let new_neighbours = get_top_k_smallest_nodes(max_heap, max_num_edges);
+                self.adjacency_list
+                    .insert(node_id.clone(), HashSet::from_iter(new_neighbours));
+            }
+        }
+    }
+}
+
+fn get_top_k_smallest_nodes(
+    max_heap: BinaryHeap<DistanceMaxCandidatePair>,
+    m: usize,
+) -> Vec<String> {
+    // returns nodes in descending order, where the first node has the largest distance
+    let mut nodes_vec = itertools::unfold(max_heap, |heap| heap.pop())
+        .map(|node| node.candidate_id)
+        .collect::<Vec<_>>();
+
+    nodes_vec.reverse();
+    nodes_vec.truncate(m);
+    nodes_vec
 }
 
 #[derive(PartialEq)]
@@ -80,7 +128,7 @@ impl<const N: usize> HNSWIndex<N> {
     fn _add_node_to_layer(
         entrypoint: Node<N>,
         target_node: &Node<N>,
-        layer: &HNSWLayer<N>,
+        layer: &mut HNSWLayer<N>,
         ef_construction: usize,
         id_to_vec: &HashMap<String, Vector<N>>,
         // number of neighbours per node, also, node degrees
@@ -109,6 +157,17 @@ impl<const N: usize> HNSWIndex<N> {
 
         // need to update the node relationships of all the neighbours
         // add the node to this layer, and adjacency list
+        layer.add_node(target_node);
+        for new_neighbour in selected_neighbours.iter() {
+            layer.add_edge(&target_node.id, &new_neighbour);
+        }
+
+        // check and reduce the num of edges if exceeds m, for all the neighbours.
+        // this is done because these neighbours have their own neighbours, and adding an edge between
+        // the new node and them could have caused these neighbours to exceed m.
+        for neighbour in selected_neighbours {
+            layer.trim_edges(neighbour, m, id_to_vec);
+        }
     }
     pub fn _search_layer(
         entrypoint: Node<N>,
