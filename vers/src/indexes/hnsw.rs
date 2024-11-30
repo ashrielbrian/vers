@@ -1,8 +1,9 @@
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use super::base::Index;
 use crate::Vector;
-use std::cmp::Ordering;
+use std::cmp::{min, Ordering};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 extern crate itertools;
@@ -106,6 +107,12 @@ impl Ord for DistanceMaxCandidatePair {
 }
 
 impl<const N: usize> HNSWIndex<N> {
+    fn get_insertion_layer(layer_multiplier: usize, max_layer: usize) -> usize {
+        let random_val: f32 = rand::thread_rng().gen();
+        let l = -(random_val.ln() * (layer_multiplier as f32)) as usize;
+        min(l, max_layer)
+    }
+
     pub fn new(num_layers: usize, ef_construction: usize, ef_search: usize) -> Self {
         let layers = (0..num_layers)
             .map(|_| HNSWLayer {
