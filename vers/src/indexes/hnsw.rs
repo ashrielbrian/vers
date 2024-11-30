@@ -13,6 +13,7 @@ pub struct HNSWIndex<const N: usize> {
     ef_construction: usize,
     ef_search: usize,
     layers: Vec<HNSWLayer<N>>,
+    id_to_vec: HashMap<String, Vector<N>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -184,13 +185,14 @@ impl<const N: usize> HNSWIndex<N> {
         id_to_vec: &HashMap<String, Vector<N>>,
     ) -> Vec<String> {
         // returns a list of candidates closest to the query vector for a given layer
-        let mut queue: VecDeque<String> = VecDeque::new();
+        let mut queue: VecDeque<&String> = VecDeque::new();
         let mut candidates_heap: BinaryHeap<DistanceMaxCandidatePair> = BinaryHeap::new();
 
         queue.push_back(entrypoint.id);
 
         while let Some(node) = queue.pop_front() {
-            if let Some(neighbour_ids) = layer.adjacency_list.get(&node) {
+            // get all neighbours in the current node, then process these neighbourhood nodes
+            if let Some(neighbour_ids) = layer.adjacency_list.get(node) {
                 for neighbour_id in neighbour_ids {
                     let neighbour_dist =
                         query_vector.squared_euclidean(&id_to_vec.get(neighbour_id).unwrap());
@@ -201,7 +203,7 @@ impl<const N: usize> HNSWIndex<N> {
                         || (candidates_heap.len() > 0
                             && neighbour_dist < candidates_heap.peek().unwrap().distance)
                     {
-                        queue.push_back(neighbour_id.clone());
+                        queue.push_back(neighbour_id);
                         candidates_heap.push(DistanceMaxCandidatePair {
                             candidate_id: neighbour_id.clone(),
                             distance: neighbour_dist,
@@ -218,18 +220,38 @@ impl<const N: usize> HNSWIndex<N> {
     }
 }
 
-struct Node<'a, const N: usize> {
-    id: String,
-    vec: &'a Vector<N>,
+struct Node<'a, 'b, const N: usize> {
+    id: &'a String,
+    vec: &'b Vector<N>,
 }
 
 impl<const N: usize> Index<N> for HNSWIndex<N> {
     fn add(&mut self, embedding: Vector<N>, vec_id: usize) {}
 
     fn search_approximate(&self, query: Vector<N>, top_k: usize) -> Vec<(usize, f32)> {
+        let ef_search = 100;
+
         // get the topmost layer to access the entrypoint. use the closest entrypoint
-        let top_layer = &self.layers[0];
-        if let Some((&entrypoint_node, entrypoint_vec)) = top_layer.nodes.iter().next() {
+        let top_layer = &self.layers.last().unwrap();
+
+        if let Some((entrypoint_node, entrypoint_vec)) = top_layer.nodes.iter().next() {
+            // start from the second last layer and work downwards to layer 0
+            for layer_idx in (0..self.layers.len() - 1).rev() {
+                let curr_layer = &self.layers[layer_idx];
+
+                Self::_search_layer(
+                    Node {
+                        id: entrypoint_node,
+                        vec: entrypoint_vec,
+                    },
+                    &query,
+                    curr_layer,
+                    ef_search,
+                    &self.id_to_vec,
+                );
+            }
+
+            vec![]
         } else {
             println!("Top layer does not have an entrypoint.");
             return vec![];
