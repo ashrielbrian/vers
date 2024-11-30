@@ -177,6 +177,7 @@ impl<const N: usize> HNSWIndex<N> {
             layer.trim_edges(neighbour, m, id_to_vec);
         }
     }
+
     pub fn _search_layer(
         entrypoint: Node<N>,
         query_vector: &Vector<N>,
@@ -184,7 +185,7 @@ impl<const N: usize> HNSWIndex<N> {
         ef_construction: usize,
         id_to_vec: &HashMap<String, Vector<N>>,
     ) -> Vec<String> {
-        // returns a list of candidates closest to the query vector for a given layer
+        // returns a list of candidates closest (of length ef_construction) to the query vector for a given layer
         let mut queue: VecDeque<&String> = VecDeque::new();
         let mut candidates_heap: BinaryHeap<DistanceMaxCandidatePair> = BinaryHeap::new();
 
@@ -220,6 +221,18 @@ impl<const N: usize> HNSWIndex<N> {
     }
 }
 
+fn _get_best_candidate<'a, 'b, const N: usize>(
+    candidates: &'a Vec<String>,
+    id_to_vec: &'b HashMap<String, Vector<N>>,
+) -> Option<Node<'a, 'b, N>> {
+    if let Some(best_candidate_id) = candidates.last() {
+        return Option::Some(Node {
+            id: best_candidate_id,
+            vec: id_to_vec.get(best_candidate_id).unwrap(),
+        });
+    }
+    None
+}
 struct Node<'a, 'b, const N: usize> {
     id: &'a String,
     vec: &'b Vector<N>,
@@ -239,7 +252,7 @@ impl<const N: usize> Index<N> for HNSWIndex<N> {
             for layer_idx in (0..self.layers.len() - 1).rev() {
                 let curr_layer = &self.layers[layer_idx];
 
-                Self::_search_layer(
+                let candidates = Self::_search_layer(
                     Node {
                         id: entrypoint_node,
                         vec: entrypoint_vec,
