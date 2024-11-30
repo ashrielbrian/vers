@@ -7,6 +7,10 @@ Currently supports the following indexing strategies:
 1. IVFFlat (k-means for partitioning)
 2. Locality-sensitive hashing (LSH) heavily inspired by [fennel.ai's blog post](https://fennel.ai/blog/vector-search-in-200-lines-of-rust/).
 
+This repository is meant to be a learning experience for ANN search algorithms and is not meant for production (as a cursory scan of the codebase can probably tell you).
+
+_"What I cannot build, I do not understand."_ - Feynman
+
 ### Getting Started
 
 Like any sensible package, the API aims to be dead simple.
@@ -66,5 +70,3 @@ Like any sensible package, the API aims to be dead simple.
 1. Python bindings
 2. Performance improvements (building IVFFlat index is slow, vectorization)
 3. Benchmarks (comparisons with popular ANN search indexes, e.g. faiss, and exhaustive searches)
-
-Contributions are welcomed.
