@@ -140,7 +140,7 @@ impl<const N: usize> HNSWLayer<N> {
         }
     }
 
-    fn _search_layer(
+    fn _search(
         &self,
         entrypoint: &OwnedNode<N>,
         query_vector: &Vector<N>,
@@ -294,12 +294,8 @@ impl<const N: usize> Index<N> for HNSWIndex<N> {
 
             for layer_idx in (insertion_layer + 1..self.layers.len() - 1).rev() {
                 let curr_layer = &self.layers[layer_idx];
-                let candidates = curr_layer._search_layer(
-                    &entrypoint,
-                    &embedding,
-                    ef_construction,
-                    &self.id_to_vec,
-                );
+                let candidates =
+                    curr_layer._search(&entrypoint, &embedding, ef_construction, &self.id_to_vec);
 
                 entrypoint = Self::_get_best_candidate(candidates, &self.id_to_vec).unwrap();
             }
@@ -309,20 +305,21 @@ impl<const N: usize> Index<N> for HNSWIndex<N> {
                 // 0. use the entrypoint from the last section
                 // 1. run search on the layer like usual and get candidates
                 let curr_layer = &mut self.layers[layer_idx];
-                let candidates = curr_layer._search_layer(
-                    &entrypoint,
-                    &embedding,
-                    ef_construction,
-                    &self.id_to_vec,
-                );
+                let candidates =
+                    curr_layer._search(&entrypoint, &embedding, ef_construction, &self.id_to_vec);
 
                 // 2. get top-m candidates
                 // 3. add node + top-m  as new neighbours
+                let num_neighbours = if layer_idx == 0 {
+                    2 * self.num_neighbours
+                } else {
+                    self.num_neighbours
+                };
                 curr_layer._add_node(
                     candidates.clone(),
                     &embedding_id,
                     &self.id_to_vec,
-                    self.num_neighbours,
+                    num_neighbours,
                 );
 
                 // 4. get new entrypoint as the top-1 neighbour, for the next layer
@@ -351,22 +348,37 @@ impl<const N: usize> Index<N> for HNSWIndex<N> {
         if let Some((entrypoint_node, _)) = top_layer.adjacency_list.iter().next() {
             // start from the second last layer and work downwards to layer 0
             let entrypoint_vec = self.id_to_vec.get(entrypoint_node).unwrap();
+            let mut entrypoint = OwnedNode {
+                id: entrypoint_node.clone(),
+                vec: entrypoint_vec,
+            };
+
+            let mut final_candidates: Vec<String> = vec![];
+
             for layer_idx in (0..self.layers.len() - 1).rev() {
                 let curr_layer = &self.layers[layer_idx];
 
-                // let candidates = Self::_search_layer(
-                //     Node {
-                //         id: entrypoint_node,
-                //         vec: entrypoint_vec,
-                //     },
-                //     &query,
-                //     curr_layer,
-                //     ef_search,
-                //     &self.id_to_vec,
-                // );
+                let candidates =
+                    curr_layer._search(&entrypoint, &query, ef_search, &self.id_to_vec);
+
+                if layer_idx != 0 {
+                    entrypoint = Self::_get_best_candidate(candidates, &self.id_to_vec).unwrap();
+                } else {
+                    final_candidates = candidates;
+                }
             }
 
-            vec![]
+            final_candidates
+                .into_iter()
+                .rev()
+                .take(top_k)
+                .map(|id| {
+                    (
+                        id.parse().unwrap(),
+                        self.id_to_vec.get(&id).unwrap().squared_euclidean(&query),
+                    )
+                })
+                .collect::<Vec<(usize, f32)>>()
         } else {
             println!("Top layer does not have an entrypoint.");
             return vec![];
