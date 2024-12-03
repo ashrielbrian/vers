@@ -97,10 +97,6 @@ impl<const N: usize> HNSWLayer<N> {
         }
     }
 
-    // pub fn add_node(&mut self, node: &Node<N>) {
-    //     self.nodes.insert(node.id.clone(), node.vec.clone());
-    // }
-    //
     fn _add_node(
         &mut self,
         candidates: Vec<String>,
@@ -142,7 +138,7 @@ impl<const N: usize> HNSWLayer<N> {
 
     fn _search(
         &self,
-        entrypoint: &OwnedNode<N>,
+        entrypoint: &Node<N>,
         query_vector: &Vector<N>,
         ef_construction: usize,
         id_to_vec: &HashMap<String, Vector<N>>,
@@ -210,16 +206,16 @@ impl<const N: usize> HNSWIndex<N> {
         min(l, max_layers)
     }
 
-    pub fn new(
+    pub fn build_index(
         num_layers: usize,
         ef_construction: usize,
         ef_search: usize,
         num_neighbours: usize,
+        id_to_vec: HashMap<String, Vector<N>>,
     ) -> Self {
         let layers = (0..num_layers)
             .map(|_| HNSWLayer {
                 adjacency_list: HashMap::new(),
-                // nodes: HashMap::new(),
             })
             .collect();
 
@@ -228,12 +224,8 @@ impl<const N: usize> HNSWIndex<N> {
             ef_construction,
             layers,
             num_neighbours,
-            id_to_vec: HashMap::new(),
+            id_to_vec,
         }
-    }
-
-    pub fn build_index(&self) {
-        todo!()
     }
 
     pub fn add_node_to_layer() {
@@ -249,9 +241,9 @@ impl<const N: usize> HNSWIndex<N> {
     fn _get_best_candidate<'a>(
         candidates: Vec<String>,
         id_to_vec: &'a HashMap<String, Vector<N>>,
-    ) -> Option<OwnedNode<'a, N>> {
+    ) -> Option<Node<'a, N>> {
         if let Some(best_candidate_id) = candidates.last().cloned() {
-            return Option::Some(OwnedNode {
+            return Option::Some(Node {
                 vec: id_to_vec.get(&best_candidate_id).unwrap(),
                 id: best_candidate_id,
             });
@@ -260,12 +252,7 @@ impl<const N: usize> HNSWIndex<N> {
     }
 }
 
-struct Node<'a, 'b, const N: usize> {
-    id: &'a String,
-    vec: &'b Vector<N>,
-}
-
-struct OwnedNode<'a, const N: usize> {
+struct Node<'a, const N: usize> {
     id: String,
     vec: &'a Vector<N>,
 }
@@ -287,7 +274,7 @@ impl<const N: usize> Index<N> for HNSWIndex<N> {
         if let Some((entrypoint_node, _)) = top_layer.adjacency_list.iter().next() {
             // 1. perform search from layers top_layer to insertion_layer + 1
             let entrypoint_vec = self.id_to_vec.get(entrypoint_node).unwrap();
-            let mut entrypoint = OwnedNode {
+            let mut entrypoint = Node {
                 id: entrypoint_node.clone(),
                 vec: entrypoint_vec,
             };
@@ -348,7 +335,7 @@ impl<const N: usize> Index<N> for HNSWIndex<N> {
         if let Some((entrypoint_node, _)) = top_layer.adjacency_list.iter().next() {
             // start from the second last layer and work downwards to layer 0
             let entrypoint_vec = self.id_to_vec.get(entrypoint_node).unwrap();
-            let mut entrypoint = OwnedNode {
+            let mut entrypoint = Node {
                 id: entrypoint_node.clone(),
                 vec: entrypoint_vec,
             };
