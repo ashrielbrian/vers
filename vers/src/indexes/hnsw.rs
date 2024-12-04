@@ -15,6 +15,7 @@ pub struct HNSWIndex<const N: usize> {
     num_neighbours: usize,
     layer_multiplier: usize,
     layers: Vec<HNSWLayer<N>>,
+    // TODO: might change the key type from string to just usize
     id_to_vec: HashMap<String, Vector<N>>,
 }
 
@@ -217,12 +218,12 @@ impl<const N: usize> HNSWIndex<N> {
         min(l, num_layers)
     }
 
-    fn _add_node(&mut self, embedding: Vector<N>, vec_id: usize) -> Result<(), String> {
+    fn _add_node(&mut self, embedding: &Vector<N>, embedding_id: usize) -> Result<(), String> {
         let ef_construction = self.ef_construction;
         let layer_multiplier = self.layer_multiplier;
         let max_layers = self.layers.len();
 
-        let embedding_id = vec_id.to_string();
+        let embedding_id = embedding_id.to_string();
 
         // get the topmost layer to access the entrypoint. use the closest entrypoint
         let top_layer = &self.layers.last().unwrap();
@@ -241,7 +242,7 @@ impl<const N: usize> HNSWIndex<N> {
             for layer_idx in (insertion_layer + 1..self.layers.len() - 1).rev() {
                 let curr_layer = &self.layers[layer_idx];
                 let candidates =
-                    curr_layer.search(&entrypoint, &embedding, ef_construction, &self.id_to_vec);
+                    curr_layer.search(&entrypoint, embedding, ef_construction, &self.id_to_vec);
 
                 entrypoint = Self::_get_best_candidate(candidates, &self.id_to_vec).unwrap();
             }
@@ -252,7 +253,7 @@ impl<const N: usize> HNSWIndex<N> {
                 // 1. run search on the layer like usual and get candidates
                 let curr_layer = &mut self.layers[layer_idx];
                 let candidates =
-                    curr_layer.search(&entrypoint, &embedding, ef_construction, &self.id_to_vec);
+                    curr_layer.search(&entrypoint, embedding, ef_construction, &self.id_to_vec);
 
                 // 2. get top-m candidates
                 // 3. add node + top-m  as new neighbours
@@ -294,7 +295,7 @@ impl<const N: usize> HNSWIndex<N> {
         ef_construction: usize,
         ef_search: usize,
         num_neighbours: usize,
-        id_to_vec: HashMap<String, Vector<N>>,
+        vectors: &Vec<Vector<N>>,
     ) -> Self {
         let layers = (0..num_layers)
             .map(|_| HNSWLayer {
@@ -302,14 +303,26 @@ impl<const N: usize> HNSWIndex<N> {
             })
             .collect();
 
-        HNSWIndex {
+        let mut id_to_vec: HashMap<String, Vector<N>> = HashMap::new();
+        vectors.iter().enumerate().for_each(|(idx, vec)| {
+            id_to_vec.insert(idx.to_string(), vec.clone());
+        });
+
+        let mut hnsw = HNSWIndex {
             ef_search,
             ef_construction,
             layer_multiplier,
             layers,
             num_neighbours,
             id_to_vec,
-        }
+        };
+
+        // _add_node separately because we needed HNSWIndex instantiated beforehand
+        vectors.iter().enumerate().for_each(|(idx, vec)| {
+            hnsw._add_node(vec, idx);
+        });
+
+        hnsw
     }
 
     pub fn add_node_to_layer() {
@@ -351,7 +364,7 @@ struct Node<'a, const N: usize> {
 
 impl<const N: usize> Index<N> for HNSWIndex<N> {
     fn add(&mut self, embedding: Vector<N>, vec_id: usize) {
-        match self._add_node(embedding, vec_id) {
+        match self._add_node(&embedding, vec_id) {
             Ok(_) => println!("Successfully added a node!"),
             Err(e) => println!("{}", e),
         }
