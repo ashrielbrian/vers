@@ -1,4 +1,4 @@
-use crate::{ANNIndex, IVFFlatIndex, Index, Vector};
+use crate::{ANNIndex, HNSWIndex, IVFFlatIndex, Index, Vector};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fs;
@@ -112,21 +112,14 @@ pub fn test_lsh<const N: usize>(
     let _reload_index: ANNIndex<N> = ANNIndex::load_index(index_file_name).unwrap();
 }
 
-pub fn test_ivfflat<const N: usize>(
+fn run_test<const N: usize, T: Index<N>>(
+    index: &mut T,
+    index_file_name: &str,
     vectors: &Vec<Vector<N>>,
     word_to_idx: &HashMap<String, usize>,
     idx_to_word: &mut HashMap<usize, String>,
-    num_clusters: usize,
-    num_attempts: usize,
-    max_iterations: usize,
     test_embs: &Vec<(String, [f32; N])>,
 ) {
-    println!("IVFFlat Index:-----");
-    let index_file_name = "ivfflat.index";
-
-    // build the IVFFlat index
-    let mut index = IVFFlatIndex::build_index(num_clusters, num_attempts, max_iterations, &vectors);
-
     // test adding new embeddings to the index
     for ((word, emb), vec_id) in test_embs.into_iter().zip([999993])
     // since there are 999994 total wiki vectors, and we omitted one element (queen)
@@ -152,6 +145,7 @@ pub fn test_ivfflat<const N: usize>(
     let results = reload_index.search_approximate(vectors[*word_to_idx.get("king").unwrap()], 20);
 
     // visualize the results
+    println!("Words closest to `king`:");
     for (i, (results_idx, distance)) in results.iter().enumerate() {
         println!(
             "{i}. Word: {}. Distance: {}",
@@ -159,4 +153,65 @@ pub fn test_ivfflat<const N: usize>(
             distance.sqrt()
         )
     }
+}
+
+pub fn test_ivfflat<const N: usize>(
+    vectors: &Vec<Vector<N>>,
+    word_to_idx: &HashMap<String, usize>,
+    idx_to_word: &mut HashMap<usize, String>,
+    num_clusters: usize,
+    num_attempts: usize,
+    max_iterations: usize,
+    test_embs: &Vec<(String, [f32; N])>,
+) {
+    println!("IVFFlat Index:-----");
+    let index_file_name = "ivfflat.index";
+
+    // build the IVFFlat index
+    let mut ivfflat =
+        IVFFlatIndex::build_index(num_clusters, num_attempts, max_iterations, &vectors);
+
+    run_test(
+        &mut ivfflat,
+        index_file_name,
+        vectors,
+        word_to_idx,
+        idx_to_word,
+        test_embs,
+    );
+}
+
+pub fn test_hnsw<const N: usize>(
+    vectors: &Vec<Vector<N>>,
+    word_to_idx: &HashMap<String, usize>,
+    idx_to_word: &mut HashMap<usize, String>,
+    num_layers: usize,
+    layer_multiplier: usize,
+    ef_construction: usize,
+    ef_search: usize,
+    num_neighbours: usize,
+    test_embs: &Vec<(String, [f32; N])>,
+) {
+    println!("HNSW Index:-----");
+    let index_file_name = "hnsw.index";
+
+    let mut hnsw = HNSWIndex::build_index(
+        num_layers,
+        layer_multiplier,
+        ef_construction,
+        ef_search,
+        num_neighbours,
+        vectors,
+    );
+
+    run_test(
+        &mut hnsw,
+        index_file_name,
+        vectors,
+        word_to_idx,
+        idx_to_word,
+        test_embs,
+    );
+
+    println!("Nodes in layers: {:?}", hnsw.get_num_nodes_in_layers())
 }
