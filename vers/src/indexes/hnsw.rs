@@ -13,8 +13,8 @@ pub struct HNSWIndex<const N: usize> {
     ef_construction: usize,
     ef_search: usize,
     num_neighbours: usize,
-    layer_multiplier: usize,
     layers: Vec<HNSWLayer<N>>,
+    layer_multiplier: f32,
     // TODO: might change the key type from string to just usize
     id_to_vec: HashMap<String, Vector<N>>,
 }
@@ -212,15 +212,18 @@ impl<'a> Ord for DistanceMaxCandidatePair<'a> {
 }
 
 impl<const N: usize> HNSWIndex<N> {
-    fn get_insertion_layer(layer_multiplier: usize, num_layers: usize) -> usize {
+    fn get_insertion_layer(layer_multiplier: f32, num_layers: usize) -> usize {
         let random_val: f32 = rand::thread_rng().gen();
         let l = -(random_val.ln() * (layer_multiplier as f32)) as usize;
         min(l, num_layers)
+
+        // num_layers = 6
+        // min(l, num_layers), l = 0 => 0 (case when insertion layer is at the top)
+        // min(l, num_layers), l >= 6 => 6 (case when insertion layer is at the bottommost - most common case)
+        // min(l, num_layers), 0 < l < 6 => l (e.g. 1, 2, 3, 4, 5. insert at l and below)
     }
 
     fn _add_node(&mut self, embedding: &Vector<N>, embedding_id: usize) -> Result<(), String> {
-        let ef_construction = self.ef_construction;
-        let layer_multiplier = self.layer_multiplier;
         let max_layers = self.layers.len();
 
         let embedding_id = embedding_id.to_string();
@@ -229,7 +232,7 @@ impl<const N: usize> HNSWIndex<N> {
         let top_layer = &self.layers.last().unwrap();
 
         // get the layer to insert this node at, and all layers below
-        let insertion_layer = Self::get_insertion_layer(layer_multiplier, max_layers);
+        let insertion_layer = Self::get_insertion_layer(self.layer_multiplier, max_layers);
 
         if let Some((entrypoint_node, _)) = top_layer.adjacency_list.iter().next() {
             // 1. perform search from layers top_layer to insertion_layer + 1
@@ -241,8 +244,12 @@ impl<const N: usize> HNSWIndex<N> {
 
             for layer_idx in (insertion_layer + 1..self.layers.len() - 1).rev() {
                 let curr_layer = &self.layers[layer_idx];
-                let candidates =
-                    curr_layer.search(&entrypoint, embedding, ef_construction, &self.id_to_vec);
+                let candidates = curr_layer.search(
+                    &entrypoint,
+                    embedding,
+                    self.ef_construction,
+                    &self.id_to_vec,
+                );
 
                 entrypoint = Self::_get_best_candidate(candidates, &self.id_to_vec).unwrap();
             }
@@ -252,8 +259,12 @@ impl<const N: usize> HNSWIndex<N> {
                 // 0. use the entrypoint from the last section
                 // 1. run search on the layer like usual and get candidates
                 let curr_layer = &mut self.layers[layer_idx];
-                let candidates =
-                    curr_layer.search(&entrypoint, embedding, ef_construction, &self.id_to_vec);
+                let candidates = curr_layer.search(
+                    &entrypoint,
+                    embedding,
+                    self.ef_construction,
+                    &self.id_to_vec,
+                );
 
                 // 2. get top-m candidates
                 // 3. add node + top-m  as new neighbours
@@ -308,11 +319,13 @@ impl<const N: usize> HNSWIndex<N> {
             id_to_vec.insert(idx.to_string(), vec.clone());
         });
 
+        let layer_multiplier = 1.0 / (num_neighbours as f32).ln();
+
         let mut hnsw = HNSWIndex {
             ef_search,
             ef_construction,
-            layer_multiplier,
             layers,
+            layer_multiplier,
             num_neighbours,
             id_to_vec,
         };
