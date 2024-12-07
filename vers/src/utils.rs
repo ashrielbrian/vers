@@ -186,7 +186,6 @@ pub fn test_hnsw<const N: usize>(
     word_to_idx: &HashMap<String, usize>,
     idx_to_word: &mut HashMap<usize, String>,
     num_layers: usize,
-    layer_multiplier: usize,
     ef_construction: usize,
     ef_search: usize,
     num_neighbours: usize,
@@ -197,7 +196,6 @@ pub fn test_hnsw<const N: usize>(
 
     let mut hnsw = HNSWIndex::build_index(
         num_layers,
-        layer_multiplier,
         ef_construction,
         ef_search,
         num_neighbours,

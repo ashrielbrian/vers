@@ -302,7 +302,6 @@ impl<const N: usize> HNSWIndex<N> {
 
     pub fn build_index(
         num_layers: usize,
-        layer_multiplier: usize,
         ef_construction: usize,
         ef_search: usize,
         num_neighbours: usize,
