@@ -15,19 +15,18 @@ pub struct HNSWIndex<const N: usize> {
     num_neighbours: usize,
     layers: Vec<HNSWLayer<N>>,
     layer_multiplier: f32,
-    // TODO: might change the key type from string to just usize
-    id_to_vec: HashMap<String, Vector<N>>,
+    id_to_vec: HashMap<usize, Vector<N>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct HNSWLayer<const N: usize> {
-    adjacency_list: HashMap<String, HashSet<String>>,
+    adjacency_list: HashMap<usize, HashSet<usize>>,
 }
 
 fn get_top_k_smallest_nodes(
     max_heap: BinaryHeap<DistanceMaxCandidatePair>,
     m: usize,
-) -> Vec<&String> {
+) -> Vec<&usize> {
     // returns nodes in descending order, where the first node has the largest distance
     let mut nodes_vec = itertools::unfold(max_heap, |heap| heap.pop())
         .map(|node| node.candidate_id)
@@ -39,20 +38,20 @@ fn get_top_k_smallest_nodes(
 }
 
 impl<const N: usize> HNSWLayer<N> {
-    fn _add_edge(&mut self, u: &String, v: &String) {
-        if let Some(adjacency_set) = self.adjacency_list.get_mut(u) {
+    fn _add_edge(&mut self, u: &usize, v: &usize) {
+        if let Some(adjacency_set) = self.adjacency_list.get_mut(&u) {
             adjacency_set.insert(v.clone());
         } else {
             self.adjacency_list.insert(u.clone(), HashSet::new());
-            self.adjacency_list.get_mut(u).unwrap().insert(v.clone());
+            self.adjacency_list.get_mut(&u).unwrap().insert(v.clone());
         }
     }
 
-    fn _add_solitary_node(&mut self, u: &String) {
+    fn _add_solitary_node(&mut self, u: &usize) {
         self.adjacency_list.insert(u.clone(), HashSet::new());
     }
 
-    fn add_edge(&mut self, u: &String, v: Option<&String>) {
+    fn add_edge(&mut self, u: &usize, v: Option<&usize>) {
         match v {
             Some(other) => {
                 self._add_edge(u, other);
@@ -67,9 +66,9 @@ impl<const N: usize> HNSWLayer<N> {
 
     fn trim_edges(
         &mut self,
-        node_id: &String,
+        node_id: &usize,
         max_num_edges: usize,
-        id_to_vec: &HashMap<String, Vector<N>>,
+        id_to_vec: &HashMap<usize, Vector<N>>,
     ) {
         if let Some(neighbours) = self.adjacency_list.get(node_id) {
             if neighbours.len() > max_num_edges {
@@ -101,9 +100,9 @@ impl<const N: usize> HNSWLayer<N> {
 
     fn add_node(
         &mut self,
-        candidates: Vec<String>,
-        target_node: &String,
-        id_to_vec: &HashMap<String, Vector<N>>,
+        candidates: Vec<usize>,
+        target_node: &usize,
+        id_to_vec: &HashMap<usize, Vector<N>>,
         // number of neighbours per node, also, node degrees
         m: usize,
     ) {
@@ -143,12 +142,12 @@ impl<const N: usize> HNSWLayer<N> {
         entrypoint: &Node<N>,
         query_vector: &Vector<N>,
         ef_construction: usize,
-        id_to_vec: &HashMap<String, Vector<N>>,
-    ) -> Vec<String> {
+        id_to_vec: &HashMap<usize, Vector<N>>,
+    ) -> Vec<usize> {
         // returns a list of candidates closest (of length ef_construction) to the query vector for a given layer
-        let mut queue: VecDeque<&String> = VecDeque::new();
+        let mut queue: VecDeque<&usize> = VecDeque::new();
         let mut candidates_heap: BinaryHeap<DistanceMaxCandidatePair> = BinaryHeap::new();
-        let mut visited: HashSet<&String> = HashSet::new();
+        let mut visited: HashSet<&usize> = HashSet::new();
 
         queue.push_back(&entrypoint.id);
         candidates_heap.push(DistanceMaxCandidatePair {
@@ -193,7 +192,7 @@ impl<const N: usize> HNSWLayer<N> {
 
 #[derive(PartialEq)]
 struct DistanceMaxCandidatePair<'a> {
-    candidate_id: &'a String,
+    candidate_id: &'a usize,
     distance: f32,
 }
 
@@ -225,8 +224,6 @@ impl<const N: usize> HNSWIndex<N> {
 
     fn _add_node(&mut self, embedding: &Vector<N>, embedding_id: usize) -> Result<(), String> {
         let max_layers = self.layers.len();
-
-        let embedding_id = embedding_id.to_string();
 
         // get the topmost layer to access the entrypoint. use the closest entrypoint
         let top_layer = &self.layers.last().unwrap();
@@ -313,9 +310,9 @@ impl<const N: usize> HNSWIndex<N> {
             })
             .collect();
 
-        let mut id_to_vec: HashMap<String, Vector<N>> = HashMap::new();
+        let mut id_to_vec: HashMap<usize, Vector<N>> = HashMap::new();
         vectors.iter().enumerate().for_each(|(idx, vec)| {
-            id_to_vec.insert(idx.to_string(), vec.clone());
+            id_to_vec.insert(idx, vec.clone());
         });
 
         let layer_multiplier = 1.0 / (num_neighbours as f32).ln();
@@ -355,8 +352,8 @@ impl<const N: usize> HNSWIndex<N> {
     }
 
     fn _get_best_candidate<'a>(
-        candidates: Vec<String>,
-        id_to_vec: &'a HashMap<String, Vector<N>>,
+        candidates: Vec<usize>,
+        id_to_vec: &'a HashMap<usize, Vector<N>>,
     ) -> Option<Node<'a, N>> {
         if let Some(best_candidate_id) = candidates.last().cloned() {
             return Option::Some(Node {
@@ -369,7 +366,7 @@ impl<const N: usize> HNSWIndex<N> {
 }
 
 struct Node<'a, const N: usize> {
-    id: String,
+    id: usize,
     // vec isn't actually necessary since id_to_vec is usually passed around too
     vec: &'a Vector<N>,
 }
@@ -396,7 +393,7 @@ impl<const N: usize> Index<N> for HNSWIndex<N> {
                 vec: entrypoint_vec,
             };
 
-            let mut final_candidates: Vec<String> = vec![];
+            let mut final_candidates: Vec<usize> = vec![];
 
             for layer_idx in (0..self.layers.len() - 1).rev() {
                 let curr_layer = &self.layers[layer_idx];
@@ -416,7 +413,7 @@ impl<const N: usize> Index<N> for HNSWIndex<N> {
                 .take(top_k)
                 .map(|id| {
                     (
-                        id.parse().unwrap(),
+                        id,
                         self.id_to_vec.get(&id).unwrap().squared_euclidean(&query),
                     )
                 })
