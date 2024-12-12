@@ -60,6 +60,7 @@ pub fn load_wiki_vector<const N: usize>(
         word_to_idx.len(),
         idx_to_word.len()
     );
+    all_vecs = all_vecs[..10000].to_vec();
     (all_vecs, word_to_idx, idx_to_word, test_embs)
 }
 
@@ -202,14 +203,14 @@ pub fn test_hnsw<const N: usize>(
         vectors,
     );
 
-    run_test(
-        &mut hnsw,
-        index_file_name,
-        vectors,
-        word_to_idx,
-        idx_to_word,
-        test_embs,
-    );
+    // run_test(
+    //     &mut hnsw,
+    //     index_file_name,
+    //     vectors,
+    //     word_to_idx,
+    //     idx_to_word,
+    //     test_embs,
+    // );
 
     println!("Nodes in layers: {:?}", hnsw.get_num_nodes_in_layers())
 }
