@@ -1,3 +1,4 @@
+#![feature(portable_simd)]
 mod indexes;
 
 pub mod utils;
