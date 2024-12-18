@@ -143,6 +143,7 @@ impl<const N: usize> HNSWLayer<N> {
 
         while let Some(node) = queue.pop_front() {
             visited.insert(node);
+
             // get all neighbours in the current node, then process these neighbourhood nodes
             if let Some(adj_item) = self.adjacency_list.get(node) {
                 for neighbour_id in adj_item.neighbours.iter() {
@@ -180,6 +181,31 @@ impl<const N: usize> HNSWLayer<N> {
 }
 
 impl<const N: usize> HNSWIndex<N> {
+    pub fn new(
+        ef_construction: usize,
+        ef_search: usize,
+        num_layers: usize,
+        num_neighbours: usize,
+    ) -> Self {
+        let layers = (0..num_layers)
+            .map(|_| HNSWLayer {
+                adjacency_list: HashMap::new(),
+            })
+            .collect();
+
+        let id_to_vec: HashMap<usize, Vector<N>> = HashMap::new();
+        let layer_multiplier = 1.0 / (num_neighbours as f32).ln();
+
+        HNSWIndex {
+            ef_construction,
+            ef_search,
+            num_neighbours,
+            layers,
+            layer_multiplier,
+            id_to_vec,
+        }
+    }
+
     fn get_insertion_layer(layer_multiplier: f32, num_layers: usize) -> usize {
         let random_val: f32 = rand::thread_rng().gen();
         let l = -(random_val.ln() * (layer_multiplier as f32)) as usize;
@@ -254,6 +280,13 @@ impl<const N: usize> HNSWIndex<N> {
         }
 
         Ok(())
+    }
+
+    pub fn create(&mut self, vectors: &Vec<Vector<N>>) {
+        vectors.iter().enumerate().for_each(|(idx, vec)| {
+            self.id_to_vec.insert(idx, vec.clone());
+            self._add_node(vec, idx);
+        });
     }
 
     pub fn build_index(
