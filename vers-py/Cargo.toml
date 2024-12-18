@@ -9,5 +9,6 @@ name = "vers_py"
 crate-type = ["cdylib"]
 
 [dependencies]
+paste = "1.0.15"
 pyo3 = "0.19.0"
-vers = { version = "0.1.0", path = "../vers"}
+vers = { version = "0.1.0", path = "../vers" }

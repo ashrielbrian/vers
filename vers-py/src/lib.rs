@@ -1,8 +1,11 @@
+use paste::paste;
 use pyo3::prelude::*;
 use std::time::Instant;
 use std::{cell::RefCell, collections::HashMap};
 
-use vers::{utils, Index, Vector};
+use vers::{utils, HNSWIndex, Index, Vector};
+
+pub mod vecs;
 
 #[pyclass]
 #[derive(Clone)]
@@ -12,6 +15,110 @@ struct Vector_F32_N300(Vector<300>);
 impl Vector_F32_N300 {
     fn get_inner(&self) -> [f32; 300] {
         self.0 .0
+    }
+}
+
+trait HNSWWrapper: Send + Sync {
+    fn build_index(&mut self, vectors: &Vec<Vec<f32>>);
+    fn get_dimensions(&self) -> usize;
+}
+
+macro_rules! create_hnsw_interfaces {
+    ($($size:expr),*) => {
+        $(
+            paste! {
+                #[pyclass]
+                pub struct [<HNSWIndex$size>] {
+                    inner: HNSWIndex<$size>,
+                }
+
+
+                impl HNSWWrapper for [<HNSWIndex$size>] {
+                    fn build_index(&mut self, vectors: &Vec<Vec<f32>>) {
+                        // validate dims
+                        if vectors.is_empty() || vectors[0].len() != $size {
+                            panic!("Vectors must be of dimension {}", $size);
+                        }
+
+                        // convert Vec<Vec<f32>> to Vec<Vector<$size>>
+                        let converted_vectors: Vec<Vector<$size>> = vectors
+                            .iter()
+                            .map(|v| {
+                                let mut arr = [0.0; $size];
+                                arr.copy_from_slice(&v[..std::cmp::min(v.len(), $size)]);
+                                Vector(arr)
+                            })
+                            .collect();
+
+                        self.inner.create(&converted_vectors);
+                    }
+
+                    fn get_dimensions(&self) -> usize {
+                        $size
+                    }
+                }
+            }
+        )*
+    };
+}
+
+create_hnsw_interfaces!(300, 512, 1024, 1536);
+
+#[pyclass]
+struct HNSW {
+    index: Box<dyn HNSWWrapper>,
+}
+
+#[pymethods]
+impl HNSW {
+    #[new]
+    fn new(
+        n_dims: usize,
+        ef_construction: usize,
+        ef_search: usize,
+        num_layers: usize,
+        num_neighbours: usize,
+    ) -> Self {
+        let index: Box<dyn HNSWWrapper> = match n_dims {
+            300 => Box::new(HNSWIndex300 {
+                inner: HNSWIndex::<300>::new(
+                    ef_construction,
+                    ef_search,
+                    num_layers,
+                    num_neighbours,
+                ),
+            }),
+            512 => Box::new(HNSWIndex512 {
+                inner: HNSWIndex::<512>::new(
+                    ef_construction,
+                    ef_search,
+                    num_layers,
+                    num_neighbours,
+                ),
+            }),
+            1024 => Box::new(HNSWIndex1024 {
+                inner: HNSWIndex::<1024>::new(
+                    ef_construction,
+                    ef_search,
+                    num_layers,
+                    num_neighbours,
+                ),
+            }),
+            1536 => Box::new(HNSWIndex1536 {
+                inner: HNSWIndex::<1536>::new(
+                    ef_construction,
+                    ef_search,
+                    num_layers,
+                    num_neighbours,
+                ),
+            }),
+
+            _ => {
+                panic!("This number of dimensions is not supported!")
+            }
+        };
+
+        Self { index }
     }
 }
 
