@@ -138,7 +138,7 @@ impl<const N: usize> HNSWLayer<N> {
         queue.push_back(&entrypoint.id);
         candidates_heap.push(DistanceMaxCandidatePair {
             candidate_id: &entrypoint.id,
-            distance: entrypoint.vec.squared_euclidean(query_vector),
+            distance: entrypoint.vec.squared_euclidean_simd(query_vector),
         });
 
         while let Some(node) = queue.pop_front() {
@@ -151,7 +151,7 @@ impl<const N: usize> HNSWLayer<N> {
                     }
 
                     let neighbour_dist =
-                        query_vector.squared_euclidean(&id_to_vec.get(neighbour_id).unwrap());
+                        query_vector.squared_euclidean_simd(&id_to_vec.get(neighbour_id).unwrap());
 
                     // if the current neighbour distance is smaller than the candidate with the largest distance, replace
                     // this candidate with the current neighbour

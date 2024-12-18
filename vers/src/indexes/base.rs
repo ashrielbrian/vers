@@ -6,9 +6,13 @@ use std::{
     path::Path,
 };
 
+use std::simd::{f32x32, num::SimdFloat};
+
 #[derive(Eq, PartialEq, Hash)]
 pub struct HashKey<const N: usize>(pub [u32; N]);
 
+// need for alignment otherwise will result in simd failures
+#[repr(align(64))]
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Vector<const N: usize>(#[serde(with = "serde_arrays")] pub [f32; N]);
 
@@ -111,5 +115,39 @@ impl<const N: usize> Vector<N> {
             return 0.0;
         }
         self.dot_product(other) / (norm_a * norm_b)
+    }
+
+    pub fn squared_euclidean_simd(&self, other: &Vector<N>) -> f32 {
+        /// this implementation uses 32 lanes specifically.
+        const LANES: isize = 32;
+
+        assert_eq!(self.0.len(), other.0.len());
+
+        let vec_len = self.0.len() as isize;
+        let chunks = vec_len / LANES;
+        let mut res = 0.0;
+
+        // (u - v)(u - v).sum()
+        let u_ptr: *const f32 = self.0.as_ptr();
+        let v_ptr: *const f32 = other.0.as_ptr();
+
+        // deal with excess elements that cannot fit into the simd chunk
+        for i in (LANES * chunks)..vec_len {
+            unsafe {
+                res += (*u_ptr.offset(i) - *v_ptr.offset(i)).powi(2);
+            }
+        }
+
+        let simd_u_ptr = u_ptr as *const f32x32;
+        let simd_v_ptr = v_ptr as *const f32x32;
+
+        for i in 0..chunks {
+            unsafe {
+                let temp = *simd_u_ptr.offset(i) - *simd_v_ptr.offset(i);
+                res += (temp * temp).reduce_sum();
+            }
+        }
+
+        res
     }
 }
