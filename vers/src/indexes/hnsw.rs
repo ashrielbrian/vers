@@ -1,11 +1,13 @@
 use rand::Rng;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::base::Index;
 use super::models::{AdjacencyItem, DistanceCandidatePair, DistanceMaxCandidatePair};
 use crate::Vector;
+use hashbrown::HashSet;
 use std::cmp::min;
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 extern crate itertools;
 
 struct Node<'a, const N: usize> {
@@ -29,8 +31,8 @@ pub struct HNSWLayer<const N: usize> {
     adjacency_list: HashMap<usize, AdjacencyItem>,
 }
 
-fn get_top_k_smallest_nodes(
-    max_heap: BinaryHeap<DistanceMaxCandidatePair>,
+fn get_top_k_smallest_nodes<const N: usize>(
+    max_heap: BinaryHeap<DistanceMaxCandidatePair<N>>,
     m: usize,
 ) -> Vec<&usize> {
     // returns nodes in descending order, where the first node has the largest distance
@@ -85,10 +87,85 @@ impl<const N: usize> HNSWLayer<N> {
         }
     }
 
+    fn _naive_neighbour_selection<'a>(
+        &self,
+        candidates: &'a Vec<DistanceCandidatePair>,
+        num_neighbours: &usize,
+    ) -> &'a [DistanceCandidatePair] {
+        // gets only the top-m candidates to be connected as neighbours
+        if candidates.len() > *num_neighbours {
+            &candidates[candidates.len() - num_neighbours..]
+        } else {
+            &candidates
+        }
+    }
+
+    fn _heuristic_neighbour_selection<'a>(
+        &self,
+        // currently don't need the target_node because DistanceCandidatePair contains the distance between the
+        // each candidate and the target node.
+        _target_node: &usize,
+        _target_vec: &Vector<N>,
+        // candidates contains distance between the target_node and each candidate, in descending order
+        candidates: &'a Vec<DistanceCandidatePair>,
+        num_neighbours: &usize,
+        id_to_vec: &HashMap<usize, Vector<N>>,
+        // remaining two args follows the hnsw paper: https://arxiv.org/pdf/1603.09320
+        // skipping for now. extend_candidates includes the neighbours of each candidate into the the working queue for candidates
+        _extend_candidates: bool,
+        // gets a fixed number of connections for the target node, since it reuses even those candidates that were discarded.
+        _keep_pruned_connections: bool,
+    ) -> Vec<&'a DistanceCandidatePair> {
+        let mut neighbours_r: Vec<&DistanceCandidatePair> = vec![];
+        // for now, do nothing with the discard pile. used with _keep_pruned_connections
+        let mut _discard_pile: Vec<&DistanceCandidatePair> = vec![];
+
+        // start with the candidate closest to the target_node
+        for i in (0..candidates.len()).rev() {
+            if neighbours_r.len() > *num_neighbours {
+                // exit the loop early once the number of connections required have been made
+                break;
+            }
+
+            let curr_candidate = &candidates[i];
+            let curr_candidate_vec = id_to_vec.get(&curr_candidate.candidate_id).unwrap();
+
+            // according to the hnsw paper, there are two conditions that must be satisfied to add a candidate to the neighbourhood
+            if neighbours_r.len() > 0 {
+                // 1. the candidate is closer to the target node, q, than any other node in R is to q.
+                // 2. the candidate is closer to the target node, q, than it is to ANY of the nodes in the neighbourhood, R
+                // i.e. the node must satisfy the condition: d(q,e) < d(r,e)
+
+                let mut should_add = true;
+                for neighbour in &neighbours_r {
+                    let neighbour_vec = id_to_vec.get(&neighbour.candidate_id).unwrap();
+                    if curr_candidate.distance
+                        >= curr_candidate_vec.squared_euclidean_simd(neighbour_vec)
+                    {
+                        should_add = false;
+                        break;
+                    }
+                }
+
+                if should_add {
+                    neighbours_r.push(curr_candidate);
+                } else {
+                    _discard_pile.push(curr_candidate);
+                }
+            } else {
+                neighbours_r.push(curr_candidate);
+            }
+        }
+
+        return neighbours_r;
+    }
+
     fn add_node(
         &mut self,
         candidates: Vec<DistanceCandidatePair>,
         target_node: &usize,
+        target_vec: &Vector<N>,
+        id_to_vec: &HashMap<usize, Vector<N>>,
         // number of neighbours per node, also, node degrees
         m: usize,
     ) {
@@ -99,12 +176,16 @@ impl<const N: usize> HNSWLayer<N> {
                 self.add_edge(target_node, None);
             }
             _ => {
-                // gets only the top-m candidates to be connected as neighbours
-                let selected_neighbours = if candidates.len() > m {
-                    &candidates[candidates.len() - m..]
-                } else {
-                    &candidates
-                };
+                // uses the neighbour selection heuristic from the hnsw paper
+                let selected_neighbours = self._heuristic_neighbour_selection(
+                    target_node,
+                    target_vec,
+                    &candidates,
+                    &m,
+                    id_to_vec,
+                    false,
+                    false,
+                );
 
                 // need to update the node relationships of all the neighbours
                 // add the node to this layer, and adjacency list
@@ -132,12 +213,13 @@ impl<const N: usize> HNSWLayer<N> {
     ) -> Vec<DistanceCandidatePair> {
         // returns a list of candidates closest (of length ef_construction) to the query vector for a given layer
         let mut queue: VecDeque<&usize> = VecDeque::new();
-        let mut candidates_heap: BinaryHeap<DistanceMaxCandidatePair> = BinaryHeap::new();
+        let mut candidates_heap: BinaryHeap<DistanceMaxCandidatePair<N>> = BinaryHeap::new();
         let mut visited: HashSet<&usize> = HashSet::new();
 
         queue.push_back(&entrypoint.id);
         candidates_heap.push(DistanceMaxCandidatePair {
             candidate_id: &entrypoint.id,
+            candidate_vec: &entrypoint.vec,
             distance: entrypoint.vec.squared_euclidean_simd(query_vector),
         });
 
@@ -146,25 +228,65 @@ impl<const N: usize> HNSWLayer<N> {
 
             // get all neighbours in the current node, then process these neighbourhood nodes
             if let Some(adj_item) = self.adjacency_list.get(node) {
-                for neighbour_id in adj_item.neighbours.iter() {
-                    if visited.contains(neighbour_id) {
-                        continue;
+                if adj_item.neighbours.len() >= 24 {
+                    let nb: Vec<_> = adj_item
+                        .neighbours
+                        .par_iter()
+                        .filter_map(|neighbour_id: &usize| {
+                            if visited.contains(neighbour_id) {
+                                None
+                            } else {
+                                Some((
+                                    neighbour_id,
+                                    query_vector.squared_euclidean_simd(
+                                        &id_to_vec.get(neighbour_id).unwrap(),
+                                    ),
+                                ))
+                            }
+                        })
+                        .collect();
+
+                    for (neighbour_id, neighbour_dist) in nb.iter() {
+                        let neighbour_vec = id_to_vec.get(neighbour_id).unwrap();
+
+                        if candidates_heap.len() < ef_construction
+                            || (candidates_heap.len() > 0
+                                && *neighbour_dist < candidates_heap.peek().unwrap().distance)
+                        {
+                            queue.push_back(neighbour_id);
+                            candidates_heap.push(DistanceMaxCandidatePair {
+                                candidate_id: neighbour_id,
+                                candidate_vec: neighbour_vec,
+                                distance: *neighbour_dist,
+                            });
+                        } else {
+                            visited.insert(neighbour_id);
+                        }
                     }
+                } else {
+                    for neighbour_id in adj_item.neighbours.iter() {
+                        if visited.contains(neighbour_id) {
+                            continue;
+                        }
 
-                    let neighbour_dist =
-                        query_vector.squared_euclidean_simd(&id_to_vec.get(neighbour_id).unwrap());
+                        let neighbour_vec = id_to_vec.get(neighbour_id).unwrap();
+                        let neighbour_dist = query_vector.squared_euclidean_simd(neighbour_vec);
 
-                    // if the current neighbour distance is smaller than the candidate with the largest distance, replace
-                    // this candidate with the current neighbour
-                    if candidates_heap.len() < ef_construction
-                        || (candidates_heap.len() > 0
-                            && neighbour_dist < candidates_heap.peek().unwrap().distance)
-                    {
-                        queue.push_back(neighbour_id);
-                        candidates_heap.push(DistanceMaxCandidatePair {
-                            candidate_id: neighbour_id,
-                            distance: neighbour_dist,
-                        });
+                        // if the current neighbour distance is smaller than the candidate with the largest distance, replace
+                        // this candidate with the current neighbour
+                        if candidates_heap.len() < ef_construction
+                            || (candidates_heap.len() > 0
+                                && neighbour_dist < candidates_heap.peek().unwrap().distance)
+                        {
+                            queue.push_back(neighbour_id);
+                            candidates_heap.push(DistanceMaxCandidatePair {
+                                candidate_id: neighbour_id,
+                                candidate_vec: neighbour_vec,
+                                distance: neighbour_dist,
+                            });
+                        } else {
+                            visited.insert(neighbour_id);
+                        }
                     }
                 }
             }
@@ -266,7 +388,13 @@ impl<const N: usize> HNSWIndex<N> {
                     self.num_neighbours
                 };
 
-                curr_layer.add_node(candidates.clone(), &embedding_id, num_neighbours);
+                curr_layer.add_node(
+                    candidates.clone(),
+                    &embedding_id,
+                    embedding,
+                    &self.id_to_vec,
+                    num_neighbours,
+                );
 
                 // 4. get new entrypoint as the top-1 neighbour, for the next layer
                 entrypoint = Self::_get_best_candidate(candidates, &self.id_to_vec).unwrap();
@@ -275,7 +403,13 @@ impl<const N: usize> HNSWIndex<N> {
             // add the node to the topmost layer and all nodes below it. since this is the first node, there are no
             // candidates and we add only itself.
             for layer in &mut self.layers {
-                layer.add_node(Vec::with_capacity(0), &embedding_id, self.num_neighbours);
+                layer.add_node(
+                    Vec::with_capacity(0),
+                    &embedding_id,
+                    embedding,
+                    &self.id_to_vec,
+                    self.num_neighbours,
+                );
             }
         }
 
