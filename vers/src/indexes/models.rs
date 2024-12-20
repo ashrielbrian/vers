@@ -1,11 +1,15 @@
+use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
-use std::cmp::{min, Ordering};
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::hash::{Hash, Hasher};
 
+use crate::Vector;
+
 #[derive(PartialEq)]
-pub struct DistanceMaxCandidatePair<'a> {
+pub struct DistanceMaxCandidatePair<'a, const N: usize> {
     pub candidate_id: &'a usize,
+    pub candidate_vec: &'a Vector<N>,
     pub distance: f32,
 }
 
@@ -15,16 +19,16 @@ pub struct DistanceCandidatePair {
     pub distance: f32,
 }
 
-impl Eq for DistanceMaxCandidatePair<'_> {}
+impl<const N: usize> Eq for DistanceMaxCandidatePair<'_, N> {}
 
-impl<'a> PartialOrd for DistanceMaxCandidatePair<'a> {
+impl<'a, const N: usize> PartialOrd for DistanceMaxCandidatePair<'a, N> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.distance.partial_cmp(&other.distance)
     }
 }
 
-impl<'a> Ord for DistanceMaxCandidatePair<'a> {
-    fn cmp(&self, other: &DistanceMaxCandidatePair) -> Ordering {
+impl<'a, const N: usize> Ord for DistanceMaxCandidatePair<'a, N> {
+    fn cmp(&self, other: &DistanceMaxCandidatePair<N>) -> Ordering {
         self.partial_cmp(other).unwrap()
     }
 }
@@ -83,6 +87,10 @@ impl AdjacencyItem {
             let to_remove = self.max_heap.pop().unwrap();
             self.neighbours.remove(&to_remove.candidate_id);
         }
+    }
+
+    pub fn max_distance(&self) -> f32 {
+        self.max_heap.peek().unwrap().distance
     }
 }
 
