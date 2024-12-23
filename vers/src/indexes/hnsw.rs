@@ -82,6 +82,7 @@ impl<const N: usize> HNSWLayer<N> {
     }
 
     fn trim_edges(&mut self, node_id: &usize, max_num_edges: usize) {
+        // no longer in use - naive way of trimming excess connections
         if let Some(adj_item) = self.adjacency_list.get_mut(node_id) {
             adj_item.trim(max_num_edges);
         }
@@ -104,7 +105,7 @@ impl<const N: usize> HNSWLayer<N> {
         &self,
         // currently don't need the target_node because DistanceCandidatePair contains the distance between the
         // each candidate and the target node.
-        _target_node: &usize,
+        target_node: &usize,
         _target_vec: &Vector<N>,
         // candidates contains distance between the target_node and each candidate, in descending order
         candidates: &'a Vec<DistanceCandidatePair>,
@@ -128,18 +129,21 @@ impl<const N: usize> HNSWLayer<N> {
             }
 
             let curr_candidate = &candidates[i];
+            if curr_candidate.candidate_id == *target_node {
+                continue;
+            }
             let curr_candidate_vec = id_to_vec.get(&curr_candidate.candidate_id).unwrap();
 
-            // according to the hnsw paper, there are two conditions that must be satisfied to add a candidate to the neighbourhood
+            // according to the hnsw paper, the condition that must be satisfied to add a candidate to the neighbourhood:
+            // the candidate is closer to the target node, q, than it is to ANY of the nodes in the neighbourhood, R
+            // i.e. the node must satisfy the condition: d(q,e) < d(r,e)
             if neighbours_r.len() > 0 {
-                // 1. the candidate is closer to the target node, q, than any other node in R is to q.
-                // 2. the candidate is closer to the target node, q, than it is to ANY of the nodes in the neighbourhood, R
-                // i.e. the node must satisfy the condition: d(q,e) < d(r,e)
-
                 let mut should_add = true;
                 for neighbour in &neighbours_r {
                     let neighbour_vec = id_to_vec.get(&neighbour.candidate_id).unwrap();
-                    if curr_candidate.distance > curr_candidate_vec.cosine_similarity(neighbour_vec)
+
+                    if curr_candidate.distance
+                        > curr_candidate_vec.cosine_similarity_simd(neighbour_vec, true)
                     {
                         should_add = false;
                         break;
@@ -245,78 +249,48 @@ impl<const N: usize> HNSWLayer<N> {
         // returns a list of candidates closest (of length ef_construction) to the query vector for a given layer
         let mut queue: VecDeque<&usize> = VecDeque::new();
         let mut candidates_heap: BinaryHeap<DistanceMaxCandidatePair<N>> = BinaryHeap::new();
-        let mut visited: HashSet<&usize> = HashSet::new();
+        let mut visited: HashSet<usize> = HashSet::new();
 
         queue.push_back(&entrypoint.id);
         candidates_heap.push(DistanceMaxCandidatePair {
             candidate_id: &entrypoint.id,
             candidate_vec: &entrypoint.vec,
-            distance: entrypoint.vec.cosine_similarity(query_vector),
+            distance: entrypoint.vec.cosine_similarity_simd(query_vector, true),
         });
 
         while let Some(node) = queue.pop_front() {
-            visited.insert(node);
+            visited.insert(*node);
 
             // get all neighbours in the current node, then process these neighbourhood nodes
             if let Some(adj_item) = self.adjacency_list.get(node) {
-                if adj_item.neighbours.len() >= 24 {
-                    let nb: Vec<_> = adj_item
-                        .neighbours
-                        .par_iter()
-                        .filter_map(|neighbour_id: &usize| {
-                            if visited.contains(neighbour_id) {
-                                None
-                            } else {
-                                Some((
-                                    neighbour_id,
-                                    query_vector
-                                        .cosine_similarity(&id_to_vec.get(neighbour_id).unwrap()),
-                                ))
-                            }
-                        })
-                        .collect();
-
-                    for (neighbour_id, neighbour_dist) in nb.iter() {
-                        let neighbour_vec = id_to_vec.get(neighbour_id).unwrap();
-
-                        if candidates_heap.len() < ef_construction
-                            || (candidates_heap.len() > 0
-                                && *neighbour_dist < candidates_heap.peek().unwrap().distance)
-                        {
-                            queue.push_back(neighbour_id);
-                            candidates_heap.push(DistanceMaxCandidatePair {
-                                candidate_id: neighbour_id,
-                                candidate_vec: neighbour_vec,
-                                distance: *neighbour_dist,
-                            });
-                        } else {
-                            visited.insert(neighbour_id);
-                        }
+                for neighbour_id in adj_item.neighbours.iter() {
+                    if visited.contains(neighbour_id) {
+                        continue;
                     }
-                } else {
-                    for neighbour_id in adj_item.neighbours.iter() {
-                        if visited.contains(neighbour_id) {
-                            continue;
-                        }
+                    visited.insert(*neighbour_id);
 
-                        let neighbour_vec = id_to_vec.get(neighbour_id).unwrap();
-                        let neighbour_dist = query_vector.cosine_similarity(neighbour_vec);
+                    let neighbour_vec = id_to_vec.get(neighbour_id).unwrap();
+                    let neighbour_dist = query_vector.cosine_similarity_simd(neighbour_vec, true);
 
-                        // if the current neighbour distance is smaller than the candidate with the largest distance, replace
-                        // this candidate with the current neighbour
-                        if candidates_heap.len() < ef_construction
-                            || (candidates_heap.len() > 0
-                                && neighbour_dist < candidates_heap.peek().unwrap().distance)
-                        {
-                            queue.push_back(neighbour_id);
-                            candidates_heap.push(DistanceMaxCandidatePair {
-                                candidate_id: neighbour_id,
-                                candidate_vec: neighbour_vec,
-                                distance: neighbour_dist,
-                            });
-                        } else {
-                            visited.insert(neighbour_id);
-                        }
+                    // if the current neighbour distance is smaller than the candidate with the largest distance, replace
+                    // this candidate with the current neighbour
+                    if candidates_heap.len() < ef_construction {
+                        queue.push_back(neighbour_id);
+                        candidates_heap.push(DistanceMaxCandidatePair {
+                            candidate_id: neighbour_id,
+                            candidate_vec: neighbour_vec,
+                            distance: neighbour_dist,
+                        });
+                    } else if neighbour_dist < candidates_heap.peek().unwrap().distance {
+                        queue.push_back(neighbour_id);
+                        candidates_heap.pop();
+                        candidates_heap.push(DistanceMaxCandidatePair {
+                            candidate_id: neighbour_id,
+                            candidate_vec: neighbour_vec,
+                            distance: neighbour_dist,
+                        });
+                    } else {
+                        visited.insert(*neighbour_id);
                     }
                 }
             }
@@ -372,14 +346,22 @@ impl<const N: usize> HNSWIndex<N> {
     }
 
     fn _add_node(&mut self, embedding: &Vector<N>, embedding_id: usize) -> Result<(), String> {
-        let max_layers = self.layers.len();
+        /// use the probability functions to get the layer to place this node at
+        /// run search from top layer all the way to the layer it was assigned.
+        /// - need to add this node on this layer and all layers below it
+        /// given an entrypoint, find all candidates (use _search_layer). once the candidates have been found,
+        /// link the node_vector to the top M candidates, where M is the number of neighbours/edges per node.
+        /// - add the node to the layer
+        /// - update the adjacency list
+        // insert the node to the hnsw global hashmap
+        self.id_to_vec.insert(embedding_id, embedding.clone());
 
         // get the topmost layer to access the entrypoint. use the closest entrypoint
+        let max_layers = self.layers.len();
         let top_layer = &self.layers.last().unwrap();
 
         // get the layer to insert this node at, and all layers below
         let insertion_layer = Self::get_insertion_layer(self.layer_multiplier, max_layers);
-        println!("{}", &insertion_layer);
 
         if let Some((entrypoint_node, _)) = top_layer.adjacency_list.iter().next() {
             // 1. perform search from layers top_layer to insertion_layer + 1
@@ -451,7 +433,6 @@ impl<const N: usize> HNSWIndex<N> {
 
     pub fn create(&mut self, vectors: &Vec<Vector<N>>) {
         vectors.iter().enumerate().for_each(|(idx, vec)| {
-            self.id_to_vec.insert(idx, vec.clone());
             self._add_node(vec, idx);
         });
     }
@@ -494,16 +475,6 @@ impl<const N: usize> HNSWIndex<N> {
         });
 
         hnsw
-    }
-
-    pub fn add_node_to_layer() {
-        // use the probability functions to get the layer to place this node at
-        // run search from top layer all the way to the layer it was assigned.
-        // - need to add this node on this layer and all layers below it
-        // given an entrypoint, find all candidates (use _search_layer). once the candidates have been found,
-        // link the node_vector to the top M candidates, where M is the number of neighbours/edges per node.
-        // - add the node to the layer
-        // - update the adjacency list
     }
 
     pub fn get_num_nodes_in_layers(&self) -> Vec<usize> {
