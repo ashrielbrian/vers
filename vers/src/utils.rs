@@ -45,7 +45,7 @@ pub fn load_wiki_vector<const N: usize>(
         idx_to_word.insert(curr_idx, word.to_owned());
 
         curr_idx += 1;
-        all_vecs.push(Vector(emb))
+        all_vecs.push(Vector(emb).normalize());
     }
 
     // verify does not contain `queen`
@@ -60,7 +60,8 @@ pub fn load_wiki_vector<const N: usize>(
         word_to_idx.len(),
         idx_to_word.len()
     );
-    all_vecs = all_vecs[..10000].to_vec();
+    all_vecs = all_vecs.to_vec();
+    // all_vecs = all_vecs[..50000].to_vec();
     (all_vecs, word_to_idx, idx_to_word, test_embs)
 }
 
@@ -95,7 +96,7 @@ pub fn test_lsh<const N: usize>(
     let index = ANNIndex::build_index(num_trees, max_node_size, vectors, &vector_ids);
 
     // search the index
-    let results = index.search_approximate(vectors[*word_to_idx.get("priceless").unwrap()], 20);
+    let results = index.search_approximate(vectors[*word_to_idx.get("queen").unwrap()], 20);
 
     // visualize the results
     for (i, (results_idx, distance)) in results.iter().enumerate() {
@@ -116,18 +117,23 @@ pub fn test_lsh<const N: usize>(
 fn run_test<const N: usize, T: Index<N>>(
     index: &mut T,
     index_file_name: &str,
-    vectors: &Vec<Vector<N>>,
-    word_to_idx: &HashMap<String, usize>,
+    vectors: &mut Vec<Vector<N>>,
+    word_to_idx: &mut HashMap<String, usize>,
     idx_to_word: &mut HashMap<usize, String>,
     test_embs: &Vec<(String, [f32; N])>,
 ) {
     // test adding new embeddings to the index
-    for ((word, emb), vec_id) in test_embs.into_iter().zip([999993])
+    for (word, emb) in test_embs.into_iter()
     // since there are 999994 total wiki vectors, and we omitted one element (queen)
     {
+        let vec = Vector(*emb);
+        let vec_id = vectors.len();
+        vectors.push(vec.clone());
+
         println!("Inserting {} {}", word, vec_id);
         idx_to_word.insert(vec_id, word.to_string());
-        index.add(Vector(*emb), vec_id);
+        word_to_idx.insert(word.clone(), vec_id);
+        index.add(Vector(*emb).normalize(), vec_id);
     }
 
     // persist the index
@@ -136,17 +142,12 @@ fn run_test<const N: usize, T: Index<N>>(
         Err(e) => eprintln!("Index save failed: {}", e),
     };
 
-    // load the index
-    let reload_index = match IVFFlatIndex::load_index(index_file_name) {
-        Ok(index) => index,
-        Err(e) => panic!("Failed to load index! {}", e),
-    };
+    let reload_index: T = T::load_index(index_file_name).expect("Failed to load index");
 
     // search the index
-    let results = reload_index.search_approximate(vectors[*word_to_idx.get("king").unwrap()], 20);
+    let results = reload_index.search_approximate(vectors[*word_to_idx.get("queen").unwrap()], 10);
 
     // visualize the results
-    println!("Words closest to `king`:");
     for (i, (results_idx, distance)) in results.iter().enumerate() {
         println!(
             "{i}. Word: {}. Distance: {}",
@@ -157,8 +158,8 @@ fn run_test<const N: usize, T: Index<N>>(
 }
 
 pub fn test_ivfflat<const N: usize>(
-    vectors: &Vec<Vector<N>>,
-    word_to_idx: &HashMap<String, usize>,
+    vectors: &mut Vec<Vector<N>>,
+    word_to_idx: &mut HashMap<String, usize>,
     idx_to_word: &mut HashMap<usize, String>,
     num_clusters: usize,
     num_attempts: usize,
@@ -183,8 +184,8 @@ pub fn test_ivfflat<const N: usize>(
 }
 
 pub fn test_hnsw<const N: usize>(
-    vectors: &Vec<Vector<N>>,
-    word_to_idx: &HashMap<String, usize>,
+    vectors: &mut Vec<Vector<N>>,
+    word_to_idx: &mut HashMap<String, usize>,
     idx_to_word: &mut HashMap<usize, String>,
     num_layers: usize,
     ef_construction: usize,
@@ -202,15 +203,16 @@ pub fn test_hnsw<const N: usize>(
         num_neighbours,
         vectors,
     );
+    // let mut hnsw = HNSWIndex::load_index(index_file_name).unwrap();
 
-    // run_test(
-    //     &mut hnsw,
-    //     index_file_name,
-    //     vectors,
-    //     word_to_idx,
-    //     idx_to_word,
-    //     test_embs,
-    // );
+    run_test(
+        &mut hnsw,
+        index_file_name,
+        vectors,
+        word_to_idx,
+        idx_to_word,
+        test_embs,
+    );
 
     println!("Nodes in layers: {:?}", hnsw.get_num_nodes_in_layers())
 }

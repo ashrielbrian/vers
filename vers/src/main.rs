@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use vers::utils;
+use vers::{utils, HNSWIndex};
 use vers::{Index, Vector};
 
 use itertools::Itertools;
@@ -52,7 +52,7 @@ fn test_adj_serde() {
     println!("{:?}", new_i.neighbours);
 }
 fn main() {
-    let (wiki, mut word_to_idx, mut idx_to_word, test_embs) =
+    let (mut wiki, mut word_to_idx, mut idx_to_word, test_embs) =
         utils::load_wiki_vector::<DIM>("../wiki-news-300d-1M.vec");
 
     let start = Instant::now();
@@ -68,13 +68,13 @@ fn main() {
     // );
 
     utils::test_hnsw(
-        &wiki,
+        &mut wiki,
         &mut word_to_idx,
         &mut idx_to_word,
-        6,
-        200,
+        12,
+        100,
         32,
-        16,
+        24,
         &test_embs,
     );
 
