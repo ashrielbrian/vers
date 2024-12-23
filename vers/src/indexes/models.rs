@@ -13,7 +13,7 @@ pub struct DistanceMaxCandidatePair<'a, const N: usize> {
     pub distance: f32,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistanceCandidatePair {
     pub candidate_id: usize,
     pub distance: f32,
@@ -72,6 +72,14 @@ impl AdjacencyItem {
             neighbours: HashSet::new(),
         }
     }
+
+    pub fn create_from_vecs(vecs: Vec<&DistanceCandidatePair>) -> Self {
+        let mut adj = Self::new();
+
+        vecs.iter().for_each(|vec| adj.insert(&vec));
+
+        adj
+    }
     pub fn insert(&mut self, u: &DistanceCandidatePair) {
         self.neighbours.insert(u.candidate_id.clone());
         self.max_heap.push(u.clone());
@@ -91,6 +99,15 @@ impl AdjacencyItem {
 
     pub fn max_distance(&self) -> f32 {
         self.max_heap.peek().unwrap().distance
+    }
+
+    pub fn consume_heap_to_vec(&mut self) -> Vec<DistanceCandidatePair> {
+        itertools::unfold(&mut self.max_heap, |heap| heap.pop())
+            .map(|candidate| DistanceCandidatePair {
+                candidate_id: candidate.candidate_id.clone(),
+                distance: candidate.distance,
+            })
+            .collect()
     }
 }
 
